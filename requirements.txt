@@ -1,0 +1,18 @@
+# Fast API
+fastapi~=0.79
+uvicorn~=0.18
+
+# lib_comm
+#git+https://github.com/Swarmchestrate/lib_comm.git@main
+
+# tosca_converter
+git+https://github.com/ZeWang42/tosca_converter.git
+
+
+# Core dependencies
+aiohttp>=3.8.0
+aiofiles>=0.8.0
+PyYAML>=6.0
+kubernetes>=24.0.0
+websockets>=10.0
+

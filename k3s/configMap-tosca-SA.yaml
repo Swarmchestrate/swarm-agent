@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: swarm-agent-tosca
+  namespace: swarm-system
+data:
+  tosca-k3s-cluster.yaml: |
+    tosca_definitions_version: tosca_2_0
+
+    service_template:
+      node_templates:
+
+        hello-world-lsa:
+          type: Container.OCI
+          properties:
+            image: zewang42/hello-world-lsa
+            resources:
+              requests:
+                cpu: "900m"
+          requirements:
+            - host: leader-node
+
+        leader-node:
+          type: Compute.EC2
+          properties:
+            region_name: ADD_YOUR_REGION_NAME_HERE
+            image_id: ADD_YOUR_IMAGE_ID_HERE
+            instance_type: ADD_YOUR_INSTANCE_TYPE_HERE
+            key_name: (OPTIONAL) ADD_YOUR_KEY_NAME_HERE
+            security_group_ids:
+              - ADD_YOUR_SECURITY_GROUP_ID_HERE
+          interfaces:
+            Occopus: {}
+
+  tosca-k3s-cluster-m02.yaml: |
+    tosca_definitions_version: tosca_2_0
+
+    service_template:
+      node_templates:
+
+        hello-world-sa:
+          type: Container.OCI
+          properties:
+            image: zewang42/hello-world-sa
+            resources:
+              requests:
+                cpu: "900m"
+          requirements:
+            - host: worker-node-1
+
+        worker-node-1:
+          type: Compute.EC2
+          properties:
+            region_name: ADD_YOUR_REGION_NAME_HERE
+            image_id: ADD_YOUR_IMAGE_ID_HERE
+            instance_type: ADD_YOUR_INSTANCE_TYPE_HERE
+            key_name: (OPTIONAL) ADD_YOUR_KEY_NAME_HERE
+            security_group_ids:
+              - ADD_YOUR_SECURITY_GROUP_ID_HERE
+          interfaces:
+            Occopus: {}
+
+  tosca-k3s-cluster-m03.yaml: |
+    tosca_definitions_version: tosca_2_0
+
+    service_template:
+      node_templates:
+
+        hello-world-sa:
+          type: Container.OCI
+          properties:
+            image: zewang42/hello-world-sa
+            resources:
+              requests:
+                cpu: "900m"
+          requirements:
+            - host: worker-node-2
+
+        worker-node-2:
+          type: Compute.EC2
+          properties:
+            region_name: ADD_YOUR_REGION_NAME_HERE
+            image_id: ADD_YOUR_IMAGE_ID_HERE
+            instance_type: ADD_YOUR_INSTANCE_TYPE_HERE
+            key_name: (OPTIONAL) ADD_YOUR_KEY_NAME_HERE
+            security_group_ids:
+              - ADD_YOUR_SECURITY_GROUP_ID_HERE
+          interfaces:
+            Occopus: {}
+

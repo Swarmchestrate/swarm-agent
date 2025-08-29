@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: swarm-agent
+  namespace: swarm-system
+spec:
+  selector:
+    matchLabels:
+      app: swarm-agent
+  template:
+    metadata:
+      labels:
+        app: swarm-agent
+    spec:
+      serviceAccountName: swarm-agent
+      containers:
+      - name: swarm-agent
+        image: zewang42/swarm-agent:7.0.arm
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 9090
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: NODE_ROLE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['role']
+        volumeMounts:
+        - name: config
+          mountPath: /config/config
+        - name: tosca
+          mountPath: /config/tosca
+      volumes:
+      - name: config
+        configMap:
+          name: swarm-agent-config
+      - name: tosca
+        configMap:
+          name: swarm-agent-tosca
+

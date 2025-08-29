@@ -1,0 +1,8 @@
+# k3s-deployment.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: swarm-system
+  labels:
+    name: swarm-system
+

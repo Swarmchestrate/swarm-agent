@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: swarm-agent-config
+  namespace: swarm-system
+data:
+  config-k3s-cluster.yaml: |
+    SA_id: "SA-LEADER-001"
+    SA_role: "leader"
+    password: "secure_password_123"
+    universe_id: "universe_prod_001"
+    app_id: "Swarm1"
+    resource_id: "EC2_1"
+    api_ip: "ra-service.swarm-system.svc.cluster.local"
+    api_port: 8080
+    p2p_public_ip: "146.176.137.144"
+    p2p_public_port: 5000
+    p2p_listen_ip: "127.0.0.1"
+    p2p_listen_port: 5000
+
+  config-k3s-cluster-m02.yaml: |
+    SA_id: "SA-WORKER-001"
+    SA_role: "worker"
+    password: "secure_password_123"
+    universe_id: "universe_prod_001"
+    app_id: "ecommerce_app"
+    resource_id: "user_service"
+    api_ip: "ra-service.swarm-system.svc.cluster.local"
+    api_port: 8080
+    p2p_public_ip: "146.176.137.144"
+    p2p_public_port: 5000
+    p2p_listen_ip: "127.0.0.1"
+    p2p_listen_port: 5001
+
+  config-k3s-cluster-m03.yaml: |
+    SA_id: "SA-WORKER-002"
+    SA_role: "worker"
+    password: "secure_password_123"
+    universe_id: "universe_prod_001"
+    app_id: "ecommerce_app"
+    resource_id: "payment_service"
+    api_ip: "ra-service.swarm-system.svc.cluster.local"
+    api_port: 8080
+    p2p_public_ip: "146.176.137.144"
+    p2p_public_port: 5000
+    p2p_listen_ip: "127.0.0.1"
+    p2p_listen_port: 5002
+
