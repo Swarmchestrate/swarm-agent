@@ -6,46 +6,54 @@ echo "Building and deploying Swarm Agent to K3s..."
 
 kubectl delete all --all -n swarm-system
 
-cd /Users/wangze/Desktop/Swarmchestrate/git/SA 
+### Building image
 
-# Build Docker image
-echo "1. Building Docker image..."
-docker build -t swarm-agent:7.0.arm .
-# Load image into k3s (if using local k3s)
+cd .. 
+set -euo pipefail
 
-#echo "2. Pushing image into DockerHub..."
-#docker tag swarm-agent:7.0.arm swarm-agent:7.0.arm
-docker tag swarm-agent:7.0.arm zewang42/swarm-agent:7.0.arm
-docker push zewang42/swarm-agent:7.0.arm
+IMAGE_NAME="swarm-agent"
+VERSION="7.0"
+
+# detect architecture
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64)
+        PLATFORM="linux/amd64"
+        SUFFIX="amd"
+        ;;
+    aarch64 | arm64)
+        PLATFORM="linux/arm64"
+        SUFFIX="arm"
+        ;;
+    *)
+        echo "❌ Unsupported architecture: $ARCH"
+        exit 1
+        ;;
+esac
+
+TAG="${VERSION}.${SUFFIX}"
+REMOTE="zewang42/${IMAGE_NAME}:${TAG}"
+
+echo "✅ Detected architecture: $ARCH"
+echo "✅ Building for $PLATFORM"
+echo "✅ Tagging as $REMOTE"
+
+# build & push
+docker buildx build \
+    --platform "$PLATFORM" \
+    -t "$REMOTE" \
+    --push .
+
+echo "🎉 Done: pushed $REMOTE"
 
 
-#docker buildx create --use
+# Apply SA's Kubernetes manifests
+echo "3. Deploying SA to K3s..."
+kubectl apply -f k3s/
 
-#docker buildx build --platform linux/amd64 \
-#    -t zewang42/swarm-agent:6.0.amd \
-#    --push .
-
-
-
-
-# Apply Kubernetes manifests
-echo "3. Deploying to K3s..."
-kubectl apply -f k3s_test/
-
-# Wait for deployments
-echo "4. Waiting for deployments to be ready..."
-kubectl wait --for=condition=available deployment/swarm-agent-leader -n swarm-system --timeout=20s
-kubectl wait --for=condition=available deployment/swarm-agent-worker -n swarm-system --timeout=20s
-
-echo "5. Deployment completed!"
+echo "4. Deployment completed!"
 
 # Show status
-echo "6. Current status:"
+echo "5. Current status:"
 kubectl get all -n swarm-system
-
-echo ""
-echo "To check logs:"
-echo "  Leader: kubectl logs -f deployment/swarm-agent-leader -n swarm-system"
-echo "  Worker: kubectl logs -f deployment/swarm-agent-worker -n swarm-system"
-
 

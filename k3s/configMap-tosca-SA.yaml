@@ -38,10 +38,10 @@ data:
     service_template:
       node_templates:
 
-        hello-world-sa:
+        hello-world-sa-1:
           type: Container.OCI
           properties:
-            image: zewang42/hello-world-sa
+            image: zewang42/hello-world-sa-1
             resources:
               requests:
                 cpu: "900m"
@@ -66,10 +66,10 @@ data:
     service_template:
       node_templates:
 
-        hello-world-sa:
+        hello-world-sa-2:
           type: Container.OCI
           properties:
-            image: zewang42/hello-world-sa
+            image: zewang42/hello-world-sa-2
             resources:
               requests:
                 cpu: "900m"
