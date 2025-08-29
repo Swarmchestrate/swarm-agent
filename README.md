@@ -1,4 +1,6 @@
- This is the repo for the implementation of swarm agents (LSA and SA).
+# Swarmchestrate - Swarm Agent
+
+This is the repo for the implementation of swarm agents (LSA and SA).
 
 ###### LSA implementation
 
