@@ -7,7 +7,7 @@ This is the repo for the implementation of swarm agents (LSA and SA).
 
 To deploy SAs, you need 1) a running k3s cluster and 2) a cluster of RAs that form a P2P network.
 
-An SA will be deployed as a DaemonSet running on each worker node of the k3s cluster.
+An SA will be deployed as a DaemonSet running on each node of the k3s cluster.
 
 To configure the SA correctly, modify the config.json file inside the scripts folder.
 
