@@ -4,7 +4,7 @@ metadata:
   name: swarm-agent-tosca
   namespace: swarm-system
 data:
-  tosca-lsa.yaml: |
+  tosca-lsaxx.yaml: |
     tosca_definitions_version: tosca_2_0
 
     service_template:
@@ -32,7 +32,7 @@ data:
           interfaces:
             Occopus: {}
 
-  tosca-sa-1.yaml: |
+  tosca-sa-1xx.yaml: |
     tosca_definitions_version: tosca_2_0
 
     service_template:
@@ -60,7 +60,7 @@ data:
           interfaces:
             Occopus: {}
 
-  tosca-sa-2.yaml: |
+  tosca-sa-2xx.yaml: |
     tosca_definitions_version: tosca_2_0
 
     service_template:

@@ -15,7 +15,7 @@ spec:
       serviceAccountName: swarm-agent
       containers:
       - name: swarm-agent
-        image: zewang42/swarm-agent:7.0.arm
+        image: zewang42/swarm-agent-7.0:amd
         imagePullPolicy: Always
         ports:
         - containerPort: 9090

@@ -55,13 +55,16 @@ fi
 echo "🎉 Done: pushed ${REMOTE}"
 
 
+echo "3. Apply configuation..."
+python3 apply-config.py config.json ../k3s/configMap-config-SA.yaml ../k3s/configMap-tosca-SA.yaml
+
 # Apply SA's Kubernetes manifests
-echo "3. Deploying SA to K3s..."
+echo "4. Deploying SA to K3s..."
 sudo kubectl apply -f k3s/
 
-echo "4. Deployment completed!"
+echo "5. Deployment completed!"
 
 # Show status
-echo "5. Current status:"
+echo "6. Current status:"
 sudo kubectl get all -n swarm-system
 
