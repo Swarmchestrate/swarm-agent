@@ -13,7 +13,7 @@ data:
     resource_id: "EC2_1"
     api_ip: "ra-service.swarm-system.svc.cluster.local"
     api_port: 8080
-    p2p_public_ip: "127.0.0.5"
+    p2p_public_ip: "127.0.0.4"
     p2p_public_port: 5000
     p2p_listen_ip: "127.0.0.1"
     p2p_listen_port: 5000
@@ -27,7 +27,7 @@ data:
     resource_id: "user_service"
     api_ip: "ra-service.swarm-system.svc.cluster.local"
     api_port: 8080
-    p2p_public_ip: "127.0.0.5"
+    p2p_public_ip: "127.0.0.4"
     p2p_public_port: 5000
     p2p_listen_ip: "127.0.0.1"
     p2p_listen_port: 5001
@@ -41,7 +41,7 @@ data:
     resource_id: "payment_service"
     api_ip: "ra-service.swarm-system.svc.cluster.local"
     api_port: 8080
-    p2p_public_ip: "127.0.0.5"
+    p2p_public_ip: "127.0.0.4"
     p2p_public_port: 5000
     p2p_listen_ip: "127.0.0.1"
     p2p_listen_port: 5002

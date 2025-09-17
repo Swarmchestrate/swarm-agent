@@ -1,5 +1,5 @@
 {
-	"p2p-public-ip":"127.0.0.4",
+	"p2p-public-ip":"127.0.0.5",
 	"p2p-public-port":"5000",
 	"node-name-lsa":"lsa",
 	"node-name-sa-1":"sa-1",
