@@ -12,7 +12,7 @@ spec:
       labels:
         app: swarm-agent
     spec:
-      serviceAccountName: swarm-agent
+      #serviceAccountName: swarm-agent
       containers:
       - name: swarm-agent
         image: zewang42/swarm-agent-7.0:amd
