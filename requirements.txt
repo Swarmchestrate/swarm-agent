@@ -3,7 +3,7 @@ fastapi~=0.79
 uvicorn~=0.18
 
 # lib_comm
-#git+https://github.com/Swarmchestrate/lib_comm.git@main
+swchp2pcom==0.3.0
 
 # tosca_converter
 git+https://github.com/ZeWang42/tosca_converter.git
