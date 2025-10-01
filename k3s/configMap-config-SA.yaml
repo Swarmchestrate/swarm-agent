@@ -4,7 +4,7 @@ metadata:
   name: swarm-agent-config
   namespace: swarm-system
 data:
-  config-lsa.yaml: |
+  config-lead-worker.yaml: |
     SA_id: "SA-LEADER-001"
     SA_role: "leader"
     password: "secure_password_123"
@@ -18,7 +18,7 @@ data:
     p2p_listen_ip: "127.0.0.1"
     p2p_listen_port: 5000
 
-  config-sa-1.yaml: |
+  config-worker-node-1.yaml: |
     SA_id: "SA-WORKER-001"
     SA_role: "worker"
     password: "secure_password_123"

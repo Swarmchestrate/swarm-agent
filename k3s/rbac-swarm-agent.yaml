@@ -10,9 +10,16 @@ kind: ClusterRole
 metadata:
   name: swarm-agent-role
 rules:
+  # Cluster-scoped read so the agent can check namespaces (fixes your 403)
 - apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "persistentvolumeclaims", "secrets"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["persistentvolumes"]
+  verbs: ["get","list","watch","create","update","patch","delete"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
