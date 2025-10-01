@@ -1,5 +1,6 @@
+from base64 import b64encode
+import json, os
 
-import os
 from kubernetes import client, config, utils
 from kubernetes.client import ApiClient
 import subprocess
@@ -19,6 +20,51 @@ from tosca_to_k8s.converter import (
     convert_node_to_pvcs,
     convert_node_to_configmap,
 )
+
+logger = logging.getLogger("SwarmAgent") 
+def ensure_namespace(v1: client.CoreV1Api, ns: str):
+    print("ensure_namespace_1")
+    try:
+        v1.read_namespace(ns)
+    except client.exceptions.ApiException as e:
+        if e.status == 404:
+            v1.create_namespace(client.V1Namespace(metadata=client.V1ObjectMeta(name=ns)))
+        else:
+            raise
+    print("ensure_namespace_2")
+
+def ensure_docker_registry_secret(v1: client.CoreV1Api, ns: str, name: str,
+                                  server: str, username: str, password: str, email: str = "unused@example.com"):
+    log = logger
+    log.info("Ensuring image pull secret %s in ns %s (server=%s, user=%s)", name, ns, server, username)
+    dockercfg = {
+        "auths": {
+            server: {
+                "username": username,
+                "password": password,
+                "email": email,
+                "auth": b64encode(f"{username}:{password}".encode()).decode(),
+            }
+        }
+    }
+    data = {".dockerconfigjson": b64encode(json.dumps(dockercfg).encode()).decode()}
+    meta = client.V1ObjectMeta(name=name, namespace=ns)
+    secret = client.V1Secret(
+        api_version="v1",
+        kind="Secret",
+        metadata=meta,
+        data=data,
+        type="kubernetes.io/dockerconfigjson",
+    )
+    try:
+        v1.create_namespaced_secret(ns, secret)
+    except client.exceptions.ApiException as e:
+        if e.status == 409:  # Already exists → replace
+            v1.replace_namespaced_secret(name, ns, secret)
+        else:
+            raise
+    print("ensure_docker_registry_secret_2")
+
 class SwarmAgent:
     """
     Swarm Agent implementation
@@ -99,20 +145,23 @@ class SwarmAgent:
 
  
         # Step 2: Initialise P2P network and wait for agents
-        self._initialise_p2p_network()
+        # Ze-TODO: this requires further work to integrate with RA
+        #self._initialise_p2p_network()
 
         self.logger.info("P2P initialised, expecting sending resource request")
 
         # Step 3: Initialise SA with app TOSCA
-        self._process_app_TOSCA()
-        self._convert_application_tosca_to_k3s()
+        #self._process_app_TOSCA()
+#        self._convert_application_tosca_to_k3s()
 
         # Step 4: Request VM, k3s, SA cluster initialisation.
         # This is critical since it requests precise information parsing
-        self._resource_request()
+        # Ze-TODO: this requires further work to integrate with RA
+        # self._resource_request()
 
         # Step test: Broadcast welcome messages to SAs for testing
-        self._broadcast_tosca()
+        # Ze-TODO: this may not be required since the config-map should be identical for all nodes
+        #self._broadcast_tosca()
        
         # Step 5: Deploy applications using the converted manifests
         self._deploy_application()
@@ -122,10 +171,10 @@ class SwarmAgent:
         self.logger.info("Starting as Worker Swarm Agent 111111111111111")
 
         # Step 2: Join P2P network
-        self._initialise_p2p_network()
+        #self._initialise_p2p_network()
 
         # Step 3: Translate TOSCA into K3s applications
-        self._convert_application_tosca_to_k3s()
+        # self._convert_application_tosca_to_k3s()
 
         # Step 5: Deploy applications using the converted manifests
         self._deploy_application()
@@ -269,16 +318,17 @@ class SwarmAgent:
                     yaml.safe_dump(dep, f)
                 print(f"Saved {filename}")
 
-            svc = convert_node_to_service(node, namespace="demo")
+            svc = convert_node_to_service(node, namespace="swarm-system")
             if svc:
                 print("---\n" + yaml.safe_dump(svc))
 
-            for pvc in convert_node_to_pvcs(node, namespace="demo"):
+            for pvc in convert_node_to_pvcs(node, namespace="swarm-system"):
                 print("---\n" + yaml.safe_dump(pvc))
 
-            cm = convert_node_to_configmap(node, namespace="demo")
+            cm = convert_node_to_configmap(node, namespace="swarm-system")
             if cm:
                 print("---\n" + yaml.safe_dump(cm))
+
 
     def _deploy_application(self):
         """Step 5/6: Initialise application by loading TOSCA and deploying resources"""
@@ -289,8 +339,14 @@ class SwarmAgent:
             # Load in-cluster config (uses ServiceAccount mounted in pod)
             config.load_incluster_config()
             k8s_client = ApiClient()
+            v1 = client.CoreV1Api(k8s_client)
 
-            folder = "k3s"
+            #folder = "k3s"
+            namespace = "default"   # <-- use the namespace you want
+            ensure_namespace(v1, namespace)
+        # Create/refresh the regcred secret first (equivalent to your kubectl command)
+           
+            folder = "/config/tosca/"
             for fname in os.listdir(folder):
                 if not fname.endswith(".yaml"):
                     continue
@@ -299,7 +355,7 @@ class SwarmAgent:
                 self.logger.info(f"Applying {fpath}")
                 try:
                     # Can apply multi-doc yaml (--- separators)
-                    utils.create_from_yaml(k8s_client, fpath, namespace="demo")
+                    utils.create_from_yaml(k8s_client, fpath, namespace="default")
                 except Exception as e:
                     self.logger.error(f"Failed applying {fpath}: {e}")
 
