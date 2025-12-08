@@ -42,7 +42,7 @@ This is done by tosca_converter library: https://github.com/ZeWang42/tosca_conve
 //(TODO) LSA initialises required resource one by one. This will be done by communicating with corresponding RA through the p2p network.
 
 ### Step4: deploys k3s manifests of MicroSVC
-(Done) LSA deploys k3s manifests of microservices that are assigned on its node.
+(TODO) LSA deploys k3s manifests of microservices that are assigned on its node.
 
 ###### 
 
