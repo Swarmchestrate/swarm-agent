@@ -52,12 +52,12 @@ def main():
         # Get config file path from command line or use default
     # Read node role from env
       #  node_role = get_node_role()
-        node_role = os.getenv("NODE_NAME")  # default fallback
-        print(f"node role is {node_role}")
+        node_name = os.getenv("NODE_NAME")  # default fallback
+        print(f"node name is {node_name}")
 
     # Build file paths based on role
-        default_config = f"/config/config/config-{node_role}.yaml"
-        default_tosca  = f"/config/tosca/tosca-{node_role}.yaml"
+        default_config = f"/config/config-{node_name}.yaml"
+        default_tosca  = f"/tosca/tosca.yaml"
 
     # Allow overrides from command line
         config_path = sys.argv[1] if len(sys.argv) > 1 else default_config
