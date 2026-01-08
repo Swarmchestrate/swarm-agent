@@ -49,28 +49,17 @@ def main():
     sa = None
 
     try:
-        # Get config file path from command line or use default
-    # Read node role from env
-      #  node_role = get_node_role()
         node_name = os.getenv("NODE_NAME")  # default fallback
         print(f"node name is {node_name}")
 
-    # Build file paths based on role
         default_config = f"/config/config-{node_name}.yaml"
         default_tosca  = f"/tosca/tosca.yaml"
 
-    # Allow overrides from command line
         config_path = sys.argv[1] if len(sys.argv) > 1 else default_config
         tosca_path = sys.argv[2] if len(sys.argv) > 2 else default_tosca
 
         print(f"✅ Using config: {config_path}")
         print(f"✅ Using tosca: {tosca_path}")
-
-
-
-     # config_path = sys.argv[1] if len(sys.argv) > 1 else "./config.yaml"
-      #  tosca_path = sys.argv[2] if len(sys.argv) > 2 else "./tosca.yaml"
-        #config_path = sys.argv[1] if len(sys.argv) > 1 else "../config/config.yaml"
 
         # Create and start Swarm Agent
         sa = SwarmAgent(config_path=config_path, tosca_path=tosca_path)
