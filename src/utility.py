@@ -25,7 +25,7 @@ def load_configuration(config_path: str = "config.yaml") -> Optional[Dict[str, A
             
         with open(config_file, 'r') as file:
             config = yaml.safe_load(file)
-#            print("Loaded configuration:", config)
+            print("Loaded configuration:", config)
 
         # Validate required fields
         required_fields = [
