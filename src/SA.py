@@ -1,5 +1,6 @@
 from base64 import b64encode
 import json, os
+import sys
 
 from kubernetes import client, config, utils
 from kubernetes.client import ApiClient
@@ -13,13 +14,17 @@ from utility import load_configuration
 from swchp2pcom import SwchPeer
 import threading
 from twisted.internet import reactor
-from tosca_to_k8s.converter import (
-    parse_tosca,
-    convert_node_to_deployment,
-    convert_node_to_service,
-    convert_node_to_pvcs,
-    convert_node_to_configmap,
-)
+
+from ruamel.yaml import YAML
+from sardou.manifestGenerator import get_kubernetes_manifest
+
+# from tosca_to_k8s.converter import (
+#     parse_tosca,
+#     convert_node_to_deployment,
+#     convert_node_to_service,
+#     convert_node_to_pvcs,
+#     convert_node_to_configmap,
+# )
 
 logger = logging.getLogger("SwarmAgent") 
 def ensure_namespace(v1: client.CoreV1Api, ns: str):
@@ -152,16 +157,8 @@ class SwarmAgent:
 
         # Step 3: Initialise SA with app TOSCA
         #self._process_app_TOSCA()
-#        self._convert_application_tosca_to_k3s()
+        self._convert_application_tosca_to_k3s()
 
-        # Step 4: Request VM, k3s, SA cluster initialisation.
-        # This is critical since it requests precise information parsing
-        # Ze-TODO: this requires further work to integrate with RA
-        # self._resource_request()
-
-        # Step test: Broadcast welcome messages to SAs for testing
-        # Ze-TODO: this may not be required since the config-map should be identical for all nodes
-        #self._broadcast_tosca()
        
         # Step 5: Deploy applications using the converted manifests
         self._deploy_application()
@@ -174,7 +171,7 @@ class SwarmAgent:
         #self._initialise_p2p_network()
 
         # Step 3: Translate TOSCA into K3s applications
-        # self._convert_application_tosca_to_k3s()
+        self._convert_application_tosca_to_k3s()
 
         # Step 5: Deploy applications using the converted manifests
         self._deploy_application()
@@ -304,31 +301,32 @@ class SwarmAgent:
 
     def _convert_application_tosca_to_k3s(self):
         self.logger.info("Converting Tosca into k8s manifests.")
-        tpl = parse_tosca(self.tosca_path)
-        #tpl = parse_tosca("/config/tosca.yaml")
-        
-        outdir = Path("k3s")
-        outdir.mkdir(exist_ok=True)
-        for node in tpl.nodetemplates:
-            dep = convert_node_to_deployment(node, namespace="swarm-system")
-            if dep:
-                print("---\n" + yaml.safe_dump(dep))
-                filename = outdir / f"Deployment-{node.name.lower()}.yaml"
-                with open(filename, "w") as f:
-                    yaml.safe_dump(dep, f)
-                print(f"Saved {filename}")
+        #tpl = parse_tosca(self.tosca_path)
+        yaml_parser = YAML()
+        yaml_parser.default_flow_style = False
 
-            svc = convert_node_to_service(node, namespace="swarm-system")
-            if svc:
-                print("---\n" + yaml.safe_dump(svc))
+        TOSCA_FILE = self.tosca_path
+        OUTPUT_FILE = "application-manifest.yaml"
+        IMAGE_PULL_SECRET = "regcred"
 
-            for pvc in convert_node_to_pvcs(node, namespace="swarm-system"):
-                print("---\n" + yaml.safe_dump(pvc))
+        path = Path(TOSCA_FILE)
+        if not path.exists():
+            sys.exit(f"Error: TOSCA file '{TOSCA_FILE}' not found.")
 
-            cm = convert_node_to_configmap(node, namespace="swarm-system")
-            if cm:
-                print("---\n" + yaml.safe_dump(cm))
+        try:
+            with open(path, "r") as f:
+                tosca_yaml = f.read()
+            manifests = get_kubernetes_manifest(tosca_yaml)
+            #manifests = get_kubernetes_manifest(tosca_yaml, image_pull_secret=IMAGE_PULL_SECRET)
+            
+            if not manifests:
+                sys.exit("Warning: No Kubernetes manifests generated.")
+            with open(OUTPUT_FILE, "w") as f:
+                yaml_parser.dump_all(manifests, f)
+        except Exception as e:
+            sys.exit(f"Error: {e}")
 
+        print(f"✅ Kubernetes manifests written to '{OUTPUT_FILE}' ({len(manifests)} items)")
 
     def _deploy_application(self):
         """Step 5/6: Initialise application by loading TOSCA and deploying resources"""
@@ -346,7 +344,7 @@ class SwarmAgent:
             ensure_namespace(v1, namespace)
         # Create/refresh the regcred secret first (equivalent to your kubectl command)
            
-            folder = "/config/tosca/"
+            folder = "./"
             for fname in os.listdir(folder):
                 if not fname.endswith(".yaml"):
                     continue
