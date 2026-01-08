@@ -153,7 +153,7 @@ class SwarmAgent:
         # Ze-TODO: this requires further work to integrate with RA
         #self._initialise_p2p_network()
 
-        self.logger.info("P2P initialised, expecting sending resource request")
+        #self.logger.info("P2P initialised, expecting sending resource request")
 
         # Step 3: Initialise SA with app TOSCA
         #self._process_app_TOSCA()
@@ -165,7 +165,7 @@ class SwarmAgent:
 
     def _start_as_worker(self):
         """Start as Worker Swarm Agent"""
-        self.logger.info("Starting as Worker Swarm Agent 111111111111111")
+        self.logger.info("Starting as Worker Swarm Agent (SA)")
 
         # Step 2: Join P2P network
         #self._initialise_p2p_network()
@@ -300,7 +300,7 @@ class SwarmAgent:
         self.logger.info("TOSCA broadcasted")
 
     def _convert_application_tosca_to_k3s(self):
-        self.logger.info("Converting Tosca into k8s manifests.")
+        self.logger.info("Converting Tosca into k3s manifests.")
         #tpl = parse_tosca(self.tosca_path)
         yaml_parser = YAML()
         yaml_parser.default_flow_style = False
@@ -331,7 +331,7 @@ class SwarmAgent:
     def _deploy_application(self):
         """Step 5/6: Initialise application by loading TOSCA and deploying resources"""
         self.logger.info(f"Initialising application {self.app_id}")
-        self.logger.info(f"Loading TOSCA for resource {self.resource_id}")
+        #self.logger.info(f"Loading TOSCA for resource {self.resource_id}")
 
         try:
             # Load in-cluster config (uses ServiceAccount mounted in pod)
