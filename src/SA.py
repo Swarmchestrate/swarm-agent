@@ -91,7 +91,7 @@ class SwarmAgent:
         self.config = load_configuration(config_path)
         if not self.config:
             raise ValueError("Failed to load configuration")
-        self.tosca = load_configuration(tosca_path)
+        #self.tosca = load_configuration(tosca_path)
         self.tosca_path = tosca_path
         # Extract configuration values
         self.sa_id = self.config['SA_id']
