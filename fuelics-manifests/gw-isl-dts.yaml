@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gw-isl-dts
+  labels:
+    app: gw-isl-dts
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gw-isl-dts
+  template:
+    metadata:
+      labels:
+        app: gw-isl-dts
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      # If you label your worker nodes like: kubectl label node <name> node-role=worker
+      containers:
+        - name: gw-isl-dts
+          #image: docker.io/library/busybox:latest 
+          image: cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/fuelics/gw-isl-dts:0.38.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: API_CFG
+              value: "./api_cfg.yaml"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "./api-services@fuelics-alpha-11.iam.gserviceaccount.com.json"
+            - name: GW_CFG
+              value: "./gw_cfg.yaml"
+            - name: PROJECT_ID
+              value: "fuelics-alpha-11"
+            - name: RUST_LOG
+              value: "none,gw=debug"
+          ports:
+            - name: gw-udp
+              containerPort: 60000
+              protocol: UDP
+          volumeMounts:
+            - name: certstore-vol
+              mountPath: /srv/acme/certstore
+            - name: fdb-vol
+              mountPath: /fdb
+      volumes:
+        - name: certstore-vol
+          hostPath:
+            path: /srv/acme/certstore
+            type: DirectoryOrCreate
+        - name: fdb-vol
+          hostPath:
+            path: /fdb
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gw-isl-dts
+  labels:
+    app: gw-isl-dts
+spec:
+  selector:
+    app: gw-isl-dts
+  type: NodePort
+  ports:
+    - name: gw-udp
+      port: 60000
+      targetPort: 60000
+      nodePort: 31702
+      protocol: UDP
+

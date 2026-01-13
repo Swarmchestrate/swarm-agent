@@ -1,0 +1,180 @@
+tosca_definitions_version: tosca_2_0
+
+metadata:
+  name: fuelics
+  version: 0.0.3
+  created_by: Jay
+  created_at: 2025-09-12
+  updated_at: 2025-09-15
+  tags:
+  - demo
+
+description: Fuelics on Swarmchestrate
+
+imports:
+- namespace: swch
+  profile: https://raw.githubusercontent.com/Swarmchestrate/tosca/refs/heads/main/profiles/eu.swarmchestrate/profile.yaml
+
+service_template:
+
+  node_templates:
+
+    # Swarm
+    swarm:
+      type: swch:Swarm
+      directives:
+      - substitute
+
+    # Resources
+    worker-node:
+      type: swch:Resource
+      directives: [select]
+      node_filter:
+        $and:
+        - $greater_than:
+          - $get_property: [SELF, TARGET, CAPABILITY, host, num-cpus]
+          - 4
+        - $greater_than:
+          - $get_property: [SELF, TARGET, CAPABILITY, host, mem-size]
+          - 8 GB
+        - $equal:
+          - $get_property: [SELF, TARGET, CAPABILITY, resource, provider]
+          - sztaki
+
+    web-worker-node:
+      type: swch:Resource
+      directives: [select]
+      node_filter:
+        $and:
+        - $greater_than:
+          - $get_property: [SELF, TARGET, CAPABILITY, host, num-cpus]
+          - 2
+        - $greater_than:
+          - $get_property: [SELF, TARGET, CAPABILITY, host, mem-size]
+          - 4 GB
+        - $equal:
+          - $get_property: [SELF, TARGET, CAPABILITY, resource, provider]
+          - edge
+
+    # Microservices
+    gw-isl-dts:
+      type: swch:Application
+      properties:
+        image: 
+          cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/fuelics/gw-isl-dts:0.38.0
+        ports:
+        - port: 60000
+          targetPort: 60000
+          protocol: UDP
+          nodePort: 31702
+          metadata:
+            name: gw-isl-dts
+        env:
+        - name: API_CFG
+          value: ./api_cfg.yaml
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: ./api-services@fuelics-alpha-11.iam.gserviceaccount.com.json
+        - name: GW_CFG
+          value: ./gw_cfg.yaml
+        - name: PROJECT_ID
+          value: fuelics-alpha-11
+        - name: RUST_LOG
+          value: none,gw=debug
+      requirements:
+      - host: worker-node
+      - volume: fdb-vol
+
+    reverse-proxy:
+      type: swch:Application
+      properties:
+        image: 
+          cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/fuelics/reverse-proxy:2.1.1
+        ports:
+        - port: 80
+          targetPort: 80
+          nodePort: 30080
+        - port: 443
+          targetPort: 443
+          nodePort: 30443
+      requirements:
+      - host: web-worker-node
+      - volume: certstore-vol
+
+    api-foreground:
+      type: swch:Application
+      properties:
+        image: 
+          cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/fuelics/api/foreground:9.7.11
+        ports:
+        - port: 80
+          targetPort: 80
+      requirements:
+      - host: web-worker-node
+
+    api:
+      type: swch:Application
+      properties:
+        image: 
+          cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/fuelics/api:0.40.1
+        ports:
+        - port: 80
+          targetPort: 80
+        env:
+        - name: API_CFG
+          value: ./api_cfg.yaml
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: ./service-account.json
+        - name: PROJECT_ID
+          value: fuelics-alpha-11
+        - name: RUST_LOG
+          value: none,api=debug
+      requirements:
+      - host: web-worker-node
+
+    web:
+      type: swch:Application
+      properties:
+        image: 
+          cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/fuelics/web:4.7.0
+        ports:
+        - port: 80
+          targetPort: 80
+      requirements:
+      - host: web-worker-node
+
+    # Volumes
+    certstore-vol:
+      type: swch:Volume.HostPath
+      properties:
+        path: /srv/acme/certstore
+
+    fdb-vol:
+      type: swch:Volume.HostPath
+      properties:
+        path: /fdb
+
+  # Policies
+  policies:
+  - energy:
+      type: swch:QoS.Energy.Budget
+      properties:
+        priority: 0.30  # Between 0 and 1, where 1 is the highest priority
+        target: 10      # watts per hour
+
+  - cost:
+      type: swch:QoS.Cost.Budget
+      properties:
+        priority: 0.30  # Between 0 and 1, where 1 is the highest priority
+        target: 2       # $ per hour
+
+  - bandwidth:
+      type: swch:QoS.Performance.Bandwidth
+      properties:
+        priority: 0.30  # Between 0 and 1, where 1 is the highest priority
+        target: 800     # Mbps
+
+  - latency:
+      type: swch:QoS.Performance.Latency
+      properties:
+        priority: 0.30  # Between 0 and 1, where 1 is the highest priority
+        target: 70     # time (ms)

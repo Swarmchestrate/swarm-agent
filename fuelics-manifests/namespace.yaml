@@ -1,0 +1,6 @@
+# --- Namespace (optional but recommended)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fuelics
+---

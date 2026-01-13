@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: dashboard-admin-sa
-  namespace: swarm-system
+  namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -16,13 +16,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: dashboard-admin-sa
-    namespace: swarm-system
+    namespace: default
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   name: kubernetes-dashboard-csrf
-  namespace: swarm-system
+  namespace: default
 type: Opaque
 data:
   csrf: ""
@@ -31,7 +31,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kubernetes-dashboard
-  namespace: swarm-system
+  namespace: default
   labels:
     k8s-app: kubernetes-dashboard
 spec:
@@ -53,14 +53,14 @@ spec:
               protocol: TCP
           args:
             - --auto-generate-certificates
-            - --namespace=swarm-system
+            - --namespace=default
             - --enable-skip-login
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: kubernetes-dashboard
-  namespace: swarm-system
+  namespace: default
   labels:
     k8s-app: kubernetes-dashboard
 spec:

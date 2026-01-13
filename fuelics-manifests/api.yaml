@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: api
+          image: cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/fuelics/api:0.40.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          env:
+            - name: API_CFG
+              value: "./api_cfg.yaml"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "./service-account.json"
+            - name: PROJECT_ID
+              value: "fuelics-alpha-11"
+            - name: RUST_LOG
+              value: "none,api=debug"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    app: api
+spec:
+  selector:
+    app: api
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+

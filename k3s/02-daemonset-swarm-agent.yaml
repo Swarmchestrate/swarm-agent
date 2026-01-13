@@ -30,9 +30,9 @@ spec:
               fieldPath: metadata.labels['role']
         volumeMounts:
         - name: config
-          mountPath: /config/config
+          mountPath: /config
         - name: tosca
-          mountPath: /config/tosca
+          mountPath: /tosca
       volumes:
       - name: config
         configMap:
