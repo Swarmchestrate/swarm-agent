@@ -1,13 +1,16 @@
 # Fast API
-fastapi~=0.79
-uvicorn~=0.18
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
 
 # lib_comm
-swchp2pcom==0.3.0
+swchp2pcom==0.4.1
 
 # tosca_converter
-git+https://github.com/ZeWang42/tosca_converter.git
+#git+https://github.com/ZeWang42/tosca_converter.git
 
+# tosca
+
+Sardou==0.4.0
 
 # Core dependencies
 aiohttp>=3.8.0
