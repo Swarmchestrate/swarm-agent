@@ -15,6 +15,7 @@ The tosca.yaml stores application's tosca file. This is identical for all SAs.
 
 These configuration files are prepared by the resource agent; therefore, users do not need to worry about them.
 
+<!--
 //To configure the SA correctly, modify the config.json file inside the scripts folder. 
 
 
@@ -48,7 +49,7 @@ These configuration files are prepared by the resource agent; therefore, users d
 //(Done) LSA deploys k3s manifests of microservices that are assigned on its node.
 
 //###### 
-
+-->
 
 
 ###### SA implementation
