@@ -1,11 +1,10 @@
 # Swarmchestrate - Swarm Agent
 
-This is the repo for the implementation of swarm agents (SA).
+This repository contains the implementation of the swarm agents (SA).
+As a user, you do not need to worry about setting up SA, as the resource agent prepares everything required and launches the swarm agents.
+This README file is intended only to help you understand the system’s purpose, setup, and workflow.
 
-
-###### Usage:
-
-To deploy SAs, you need 1) a running k3s cluster and 2) a cluster of RAs that form a P2P network.
+## Setup
 
 An SA will be deployed as a DaemonSet running on each node of the k3s cluster.
 
@@ -52,7 +51,7 @@ These configuration files are prepared by the resource agent; therefore, users d
 -->
 
 
-###### SA implementation
+## Workflow
 
 ### Step1: deployment
 (Done) SA is deployed as a Daemonset inside a freshly initialised k3s node.
