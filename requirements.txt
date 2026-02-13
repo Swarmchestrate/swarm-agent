@@ -5,12 +5,9 @@ uvicorn[standard]==0.35.0
 # lib_comm
 swchp2pcom==0.4.1
 
-# tosca_converter
-#git+https://github.com/ZeWang42/tosca_converter.git
 
-# tosca
-
-Sardou==0.4.0
+# tosca library
+Sardou==0.4.2
 
 # Core dependencies
 aiohttp>=3.8.0
