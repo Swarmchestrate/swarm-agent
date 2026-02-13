@@ -28,7 +28,7 @@ These configuration files are prepared by the resource agent; therefore, users d
 //###### LSA implementation
 
 //### Step1: deployment
-//(Done) LSA is a python3 implementation which will be deployed as a Daemonset inside a single node of k3s cluster. The first SA is deployed as LSA.
+//(Done) LSA is a python3 implementation which will be deployed as a DaemonSet inside a single node of k3s cluster. The first SA is deployed as LSA.
 //(Done) After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the ADT defined in config/tosca.yaml.
 
 //### Step2: p2p network initialisation
@@ -54,7 +54,8 @@ These configuration files are prepared by the resource agent; therefore, users d
 ## Workflow
 
 ### Step1: deployment
-(Done) SA is deployed as a Daemonset inside a freshly initialised k3s node.
+(Done) SA is deployed as a DaemonSet inside a freshly initialised k3s node.
+
 (Done) After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the ADT defined in config/tosca.yaml.
 
 ### Step2: p2p network initialisation
