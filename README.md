@@ -50,23 +50,37 @@ These configuration files are prepared by the resource agent; therefore, users d
 //###### 
 -->
 
+## Feature Status
+
+### Features
+
+#### Join p2p network and communicate with RA
+#### Translate application TOSCA into k3s manifests
+#### Deploying application's k3s manifests
+
+### Limitations
+
+#### Runtime reconfiguration
+- Pod-level scaling
+- VM-level scaling
+- Pod migration
 
 ## Workflow
 
 ### Step1: deployment
-(Done) SA is deployed as a DaemonSet inside a freshly initialised k3s node.
+SA is deployed as a DaemonSet inside a freshly initialised k3s node.
 
-(Done) After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the ADT defined in config/tosca.yaml.
+After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the ADT defined in config/tosca.yaml.
 
 ### Step2: p2p network initialisation
-(Done) With the configuration file loaded, SA knows the p2p network ip and port, it then joins in it.
+With the configuration file loaded, SA knows the p2p network ip and port, it then joins in it.
 
 
 ### Step3: tosca translation
-(Done) It uses tosca library to convert application's tosca file into k3s manitests.
+It uses tosca library to convert application's tosca file into k3s manitests.
 
 
 ### Step4: deploys k3s manifests of MicroSVC
-(Done) SA deploys k3s manifests of microservices that are assigned on its node.
+SA deploys k3s manifests of microservices that are assigned on its node.
 
 ###### 
