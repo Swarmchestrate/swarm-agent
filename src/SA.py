@@ -314,10 +314,11 @@ class SwarmAgent:
             sys.exit(f"Error: TOSCA file '{TOSCA_FILE}' not found.")
 
         try:
-            with open(path, "r") as f:
-                tosca_yaml = f.read()
+            #with open(path, "r") as f:
+            #    tosca_yaml = f.read()
             #manifests = get_kubernetes_manifest(tosca_yaml)
-            manifests = get_kubernetes_manifest(tosca_yaml, image_pull_secret=IMAGE_PULL_SECRET)
+            manifests = get_kubernetes_manifest(TOSCA_FILE, image_pull_secret=IMAGE_PULL_SECRET)
+            #manifests = get_kubernetes_manifest(tosca_yaml, image_pull_secret=IMAGE_PULL_SECRET)
             
             if not manifests:
                 sys.exit("Warning: No Kubernetes manifests generated.")
