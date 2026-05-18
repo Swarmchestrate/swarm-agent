@@ -5,7 +5,24 @@ FROM python:3.12-slim
 # Set working directory
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends git build-essential \
+ARG PUCCINI_AMD64_URL="https://github.com/Swarmchestrate/tosca/releases/download/v0.2.4/go-puccini_0.22.7-SNAPSHOT-3e85b40_linux_amd64.deb"
+ARG PUCCINI_ARM64_URL="https://github.com/Swarmchestrate/tosca/releases/download/v0.2.4/go-puccini_0.22.7-SNAPSHOT-3e85b40_linux_arm64.deb"
+
+# Install puccini (TOSCA library)
+RUN arch="$(dpkg --print-architecture)" \
+    && case "$arch" in \
+        amd64) puccini_url="$PUCCINI_AMD64_URL" ;; \
+        arm64) puccini_url="$PUCCINI_ARM64_URL" ;; \
+        *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac \
+    && if [ -z "$puccini_url" ]; then echo "Missing Puccini download URL for architecture: $arch" >&2; exit 1; fi \
+    && wget -q "$puccini_url" -O /tmp/puccini.deb \
+    && (dpkg -i /tmp/puccini.deb || apt-get install -f -y) \
+    && rm /tmp/puccini.deb
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 
