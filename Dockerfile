@@ -9,7 +9,7 @@ ARG PUCCINI_AMD64_URL="https://github.com/Swarmchestrate/tosca/releases/download
 ARG PUCCINI_ARM64_URL="https://github.com/Swarmchestrate/tosca/releases/download/v0.2.4/go-puccini_0.22.7-SNAPSHOT-3e85b40_linux_arm64.deb"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget
+    wget \
     git \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
