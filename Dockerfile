@@ -7,7 +7,7 @@ WORKDIR /app
 
 ARG PUCCINI_AMD64_URL="https://github.com/Swarmchestrate/tosca/releases/download/v0.2.4/go-puccini_0.22.7-SNAPSHOT-3e85b40_linux_amd64.deb"
 ARG PUCCINI_ARM64_URL="https://github.com/Swarmchestrate/tosca/releases/download/v0.2.4/go-puccini_0.22.7-SNAPSHOT-3e85b40_linux_arm64.deb"
-ARG PUCCINI_ARMV7_URL="https://github.com/Swarmchestrate/tosca/releases/download/v0.2.4/go-puccini_0.22.7-SNAPSHOT-3e85b40_linux_armv7.deb"
+ARG PUCCINI_ARMHF_URL="https://github.com/Swarmchestrate/tosca/releases/download/v0.2.4/go-puccini_0.22.7-SNAPSHOT-3e85b40_linux_armhf.deb"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
@@ -20,7 +20,7 @@ RUN arch="$(dpkg --print-architecture)" \
     && case "$arch" in \
         amd64) puccini_url="$PUCCINI_AMD64_URL" ;; \
         arm64) puccini_url="$PUCCINI_ARM64_URL" ;; \
-        armhf) puccini_url="$PUCCINI_ARMV7_URL" ;; \
+        armhf) puccini_url="$PUCCINI_ARMHF_URL" ;; \
         *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
     esac \
     && if [ -z "$puccini_url" ]; then echo "Missing Puccini download URL for architecture: $arch" >&2; exit 1; fi \
