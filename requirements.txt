@@ -7,7 +7,7 @@ swchp2pcom==0.4.1
 
 
 # tosca library
-Sardou==0.4.2
+Sardou>=0.12.2
 
 # Core dependencies
 aiohttp>=3.8.0
