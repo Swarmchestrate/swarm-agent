@@ -320,13 +320,17 @@ class SwarmAgent:
         try:
             #with open(path, "r") as f:
             #    tosca_yaml = f.read()
+            
             #manifests = get_kubernetes_manifest(tosca_yaml)
+            print("[DEBUG] Calling get_k8s_manifest function")
             manifests = get_kubernetes_manifest(tosca_file=TOSCA_FILE, image_pull_secret=IMAGE_PULL_SECRET)
             #manifests = get_kubernetes_manifest(tosca_yaml, image_pull_secret=IMAGE_PULL_SECRET)
             
             if not manifests:
+                print("[DEBUG] No Manifests!")
                 sys.exit("Warning: No Kubernetes manifests generated.")
             with open(OUTPUT_FILE, "w") as f:
+                print("[DEBUG] Manifests have been translated!")
                 yaml_parser.dump_all(manifests, f)
         except Exception as e:
             sys.exit(f"Error: {e}")
