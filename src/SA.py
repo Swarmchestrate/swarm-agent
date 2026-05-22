@@ -161,6 +161,8 @@ class SwarmAgent:
 
         # Step 3: Initialise SA with app TOSCA
         #self._process_app_TOSCA()
+        print("[DEBUG] Now enter convert application tosca!")
+        self.logger.info("[DEBUG] Now enter convert application tosca")
         self._convert_application_tosca_to_k3s()
 
        
@@ -304,6 +306,7 @@ class SwarmAgent:
         self.logger.info("TOSCA broadcasted")
 
     def _convert_application_tosca_to_k3s(self):
+        print("[DEBUG] Now inside convert application tosca")
         self.logger.info("Converting Tosca into k3s manifests.")
         #tpl = parse_tosca(self.tosca_path)
         yaml_parser = YAML()
