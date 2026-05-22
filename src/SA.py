@@ -5,7 +5,7 @@ import sys
 from kubernetes import client, config, utils
 from kubernetes.client import ApiClient
 import subprocess
-from pathlib import Path
+
 import yaml
 import logging
 import asyncio
@@ -15,8 +15,12 @@ from swchp2pcom import SwchPeer
 import threading
 from twisted.internet import reactor
 
+
+#from sardou.manifestGenerator import get_kubernetes_manifest
+from k3s_client.utils.manifest import get_kubernetes_manifest
 from ruamel.yaml import YAML
-from sardou.manifestGenerator import get_kubernetes_manifest
+from io import StringIO
+from pathlib import Path
 
 # from tosca_to_k8s.converter import (
 #     parse_tosca,
@@ -317,7 +321,7 @@ class SwarmAgent:
             #with open(path, "r") as f:
             #    tosca_yaml = f.read()
             #manifests = get_kubernetes_manifest(tosca_yaml)
-            manifests = get_kubernetes_manifest(TOSCA_FILE, image_pull_secret=IMAGE_PULL_SECRET)
+            manifests = get_kubernetes_manifest(tosca_file=TOSCA_FILE, image_pull_secret=IMAGE_PULL_SECRET)
             #manifests = get_kubernetes_manifest(tosca_yaml, image_pull_secret=IMAGE_PULL_SECRET)
             
             if not manifests:
