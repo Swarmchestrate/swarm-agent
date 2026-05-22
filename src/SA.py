@@ -329,6 +329,7 @@ class SwarmAgent:
             if not manifests:
                 print("[DEBUG] No Manifests!")
                 sys.exit("Warning: No Kubernetes manifests generated.")
+            print("[DEBUG] Manifest is there, now dump the output!")
             with open(OUTPUT_FILE, "w") as f:
                 print("[DEBUG] Manifests have been translated!")
                 yaml_parser.dump_all(manifests, f)
