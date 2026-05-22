@@ -111,7 +111,7 @@ class SwarmAgent:
         self.resource_id = self.config['resource_id']
         self.sa_role = self.config['SA_role']
 
-        self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}")
+        self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
     def start(self):
         """
