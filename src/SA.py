@@ -16,8 +16,8 @@ import threading
 from twisted.internet import reactor
 
 
-from sardou.manifestGenerator import get_kubernetes_manifest
-#from k3s_client.utils.manifest import get_kubernetes_manifest
+#from sardou.manifestGenerator import get_kubernetes_manifest
+from k3s_client.utils.manifest import get_kubernetes_manifest
 #from k3s_client.api.applications import ApplicationManager
 from ruamel.yaml import YAML
 from io import StringIO
@@ -328,8 +328,8 @@ class SwarmAgent:
             #manifests = get_kubernetes_manifest(tosca_yaml)
             self.logger.info("Calling get_k8s_manifest function")
             # k3s_client function:
-            #manifests = get_kubernetes_manifest(tosca_file=TOSCA_FILE, image_pull_secret=IMAGE_PULL_SECRET)
-            manifests = get_kubernetes_manifest(tosca_yaml, image_pull_secret=IMAGE_PULL_SECRET)
+            manifests = get_kubernetes_manifest(tosca_file=TOSCA_FILE, image_pull_secret=IMAGE_PULL_SECRET)
+            #manifests = get_kubernetes_manifest(tosca_yaml, image_pull_secret=IMAGE_PULL_SECRET)
             
             if not manifests:
                 self.logger.info("No Manifests!")
