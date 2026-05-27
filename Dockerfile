@@ -50,9 +50,9 @@ COPY src/utility.py .
 RUN mkdir -p /config
 
 # Create non-root user
-RUN useradd -r -u 1000 swarmuser
-RUN chown -R swarmuser:swarmuser /app /config
-USER swarmuser
+#RUN useradd -r -u 1000 swarmuser
+#RUN chown -R swarmuser:swarmuser /app /config
+#USER swarmuser
 
 # Expose P2P port
 EXPOSE 9090
