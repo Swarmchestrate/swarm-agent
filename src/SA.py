@@ -325,21 +325,21 @@ class SwarmAgent:
             #    tosca_yaml = f.read()
             
             #manifests = get_kubernetes_manifest(tosca_yaml)
-            print("[DEBUG] Calling get_k8s_manifest function")
+            self.logger.debug("Calling get_k8s_manifest function")
             manifests = get_kubernetes_manifest(tosca_file=TOSCA_FILE, image_pull_secret=IMAGE_PULL_SECRET)
             #manifests = get_kubernetes_manifest(tosca_yaml, image_pull_secret=IMAGE_PULL_SECRET)
             
             if not manifests:
-                print("[DEBUG] No Manifests!")
+                self.logger.debug("No Manifests!")
                 sys.exit("Warning: No Kubernetes manifests generated.")
-            print("[DEBUG] Manifest is there, now dump the output!")
+            self.logger.debug(" Manifest is there, now dump the output!")
             with open(OUTPUT_FILE, "w") as f:
-                print("[DEBUG] Manifests have been translated!")
+                self.logger.debug("Manifests have been translated! We now dump manifests into {OUTPUT_FILE}")
                 yaml_parser.dump_all(manifests, f)
         except Exception as e:
             sys.exit(f"Error: {e}")
 
-        print(f"✅ Kubernetes manifests written to '{OUTPUT_FILE}' ({len(manifests)} items)")
+        self.logger.debug("✅ Kubernetes manifests written to '{OUTPUT_FILE}' ({len(manifests)} items)")
 
     def _deploy_application(self):
         """Step 5/6: Initialise application by loading TOSCA and deploying resources"""
