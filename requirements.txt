@@ -13,7 +13,8 @@ Sardou>=0.12.2
 aiohttp>=3.8.0
 aiofiles>=0.8.0
 PyYAML>=6.0
-kubernetes>=24.0.0
+#kubernetes>=24.0.0
+kubernetes==35.0.0
 websockets>=10.0
 k3s-client==0.2.0
 
