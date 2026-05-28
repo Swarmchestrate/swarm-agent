@@ -7,7 +7,7 @@ swchp2pcom==0.4.1
 
 
 # tosca library
-Sardou>=0.12.2
+Sardou>=0.12.3
 
 # Core dependencies
 aiohttp>=3.8.0
@@ -16,5 +16,5 @@ PyYAML>=6.0
 #kubernetes>=24.0.0
 kubernetes==35.0.0
 websockets>=10.0
-k3s-client==0.2.0
+k3s-client==0.2.1
 
