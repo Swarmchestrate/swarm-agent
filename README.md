@@ -2,7 +2,7 @@
 
 This repository contains the implementation of the swarm agents (SA).
 As a user, you do not need to worry about setting up SA, as the resource agent prepares everything required and launches the swarm agents.
-This README file is intended only to help you understand the system’s purpose, setup, and workflow.
+This README file is intended only to help you understand the system’s setup and workflow.
 
 ## Setup
 
@@ -70,7 +70,7 @@ These configuration files are prepared by the resource agent; therefore, users d
 ### Step1: deployment
 SA is deployed as a DaemonSet inside a freshly initialised k3s node.
 
-After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the ADT defined in config/tosca.yaml.
+After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the SAT defined in config/tosca.yaml.
 
 ### Step2: p2p network initialisation
 With the configuration file loaded, SA knows the p2p network ip and port, it then joins in it.
