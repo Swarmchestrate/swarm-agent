@@ -70,10 +70,10 @@ These configuration files are prepared by the resource agent; therefore, users d
 SA is deployed as a DaemonSet inside a freshly initialised k3s node.
 
 After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the SAT defined in config/tosca.yaml.
-
+<!--
 //### Step2: p2p network initialisation
 //With the configuration file loaded, SA knows the p2p network ip and port, it then joins in it.
-
+-->
 
 ### Step2: tosca translation
 It uses tosca library to convert application's tosca file into k3s manitests.
