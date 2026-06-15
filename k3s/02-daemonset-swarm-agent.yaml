@@ -15,7 +15,9 @@ spec:
       serviceAccountName: swarm-agent
       containers:
       - name: swarm-agent
-        image: zewang42/swarm-agent-7.0:amd
+        #image: zewang42/swarm-agent-7.0:amd
+        image: zewang42/swarm-agent-7.0:standalone
+       # image: ghcr.io/swarmchestrate/swarm-agent:dev
         imagePullPolicy: Always
         ports:
         - containerPort: 9090
