@@ -6,10 +6,10 @@ This README file is intended only to help you understand the system’s setup an
 
 ## Setup
 
-An SA will be deployed as a DaemonSet running on each node of the k3s cluster.
+The SA will be deployed as a DaemonSet resource running on each node of the k3s cluster.
 
 Each SA takes two ConfigMaps as inputs, i.e., config.yaml, and tosca.yaml.
-The config.yaml defines SA-specific data for its initialisation.
+The config.yaml defines SA-specific configuration data for its initialisation.
 The tosca.yaml stores application's tosca file. This is identical for all SAs.
 
 These configuration files are prepared by the resource agent; therefore, users do not need to worry about them.
@@ -54,7 +54,6 @@ These configuration files are prepared by the resource agent; therefore, users d
 
 ### Features
 
-#### Join p2p network and communicate with RA
 #### Translate application TOSCA into k3s manifests
 #### Deploying application's k3s manifests
 
@@ -72,15 +71,15 @@ SA is deployed as a DaemonSet inside a freshly initialised k3s node.
 
 After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the SAT defined in config/tosca.yaml.
 
-### Step2: p2p network initialisation
-With the configuration file loaded, SA knows the p2p network ip and port, it then joins in it.
+//### Step2: p2p network initialisation
+//With the configuration file loaded, SA knows the p2p network ip and port, it then joins in it.
 
 
-### Step3: tosca translation
+### Step2: tosca translation
 It uses tosca library to convert application's tosca file into k3s manitests.
 
 
-### Step4: deploys k3s manifests of MicroSVC
+### Step3: deploys k3s manifests of MicroSVC
 SA deploys k3s manifests of microservices that are assigned on its node.
 
 ###### 
