@@ -2,7 +2,7 @@
 
 This repository contains the implementation of the swarm agents (SA).
 As a user, you do not need to worry about setting up SA, as the resource agent prepares everything required and launches the swarm agents.
-This README file is intended only to help you understand the system’s purpose, setup, and workflow.
+This README file is intended only to help you understand the system’s setup and workflow.
 
 ## Setup
 
