@@ -1,52 +1,46 @@
-# build-and-deploy.sh
-#!/bin/bash
-set -e
-
-
-### Building image
-
-cd .. 
+#!/usr/bin/env bash
 set -euo pipefail
 
-# -------- Config --------
-IMAGE_NAME="swarm-agent-7.0"          # <-- set this
-NAMESPACE="zewang42"                  # docker hub / ghcr namespace
-# ------------------------
+cd "$(dirname "$0")/.."
 
-# detect architecture
-ARCH=$(uname -m)
-case "$ARCH" in
-  x86_64)  PLATFORM="linux/amd64"; SUFFIX="amd" ;;
-  aarch64|arm64) PLATFORM="linux/arm64"; SUFFIX="arm" ;;
-  *) echo "❌ Unsupported architecture: $ARCH"; exit 1 ;;
-esac
+IMAGE_NAME="swarm-agent-7.0"
+NAMESPACE="zewang42"
 
-TAG="${SUFFIX}"
-REMOTE="${NAMESPACE}/${IMAGE_NAME}:${TAG}"
+TAG_VERSION="7.0"
+REMOTE_VERSION="${NAMESPACE}/${IMAGE_NAME}:${TAG_VERSION}"
+REMOTE_LATEST="${NAMESPACE}/${IMAGE_NAME}:standalone"
 
-echo "✅ Detected architecture: $ARCH"
-echo "✅ Building for ${PLATFORM}"
-echo "✅ Tagging as ${REMOTE}"
+BUILDER_NAME="multiarch"
 
-# check for buildx availability
-if docker buildx version >/dev/null 2>&1; then
-  # ensure a builder is selected
-  if ! docker buildx inspect >/dev/null 2>&1; then
-    echo "ℹ️  No active buildx builder; creating one..."
-    docker buildx create --use
-  fi
+echo "Building multi-arch image"
+echo "Image: ${REMOTE_VERSION}"
+echo "Also tagging: ${REMOTE_LATEST}"
 
-  echo "🚧 Using buildx..."
-  docker buildx build \
-    --platform "${PLATFORM}" \
-    -t "${REMOTE}" \
-    --push .
-else
-  echo "⚠️ buildx not found; falling back to classic docker build (current arch only)"
-  docker build -t "${REMOTE}" .
-  docker push "${REMOTE}"
+if ! docker buildx version >/dev/null 2>&1; then
+  echo "docker buildx is required for multi-arch builds"
+  exit 1
 fi
 
-echo "🎉 Done: pushed ${REMOTE}"
+if ! docker buildx inspect "${BUILDER_NAME}" >/dev/null 2>&1; then
+  echo "Creating buildx builder: ${BUILDER_NAME}"
+  docker buildx create --name "${BUILDER_NAME}" --use
+else
+  docker buildx use "${BUILDER_NAME}"
+fi
 
+docker buildx inspect --bootstrap
 
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t "${REMOTE_VERSION}" \
+  -t "${REMOTE_LATEST}" \
+  --push \
+  .
+
+echo "Done"
+echo "Pushed:"
+echo "  ${REMOTE_VERSION}"
+echo "  ${REMOTE_LATEST}"
+
+echo "Verify with:"
+echo "  docker buildx imagetools inspect ${REMOTE_LATEST}"
