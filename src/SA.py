@@ -178,10 +178,10 @@ class SwarmAgent:
         #self._initialise_p2p_network()
 
         # Step 3: Translate TOSCA into K3s applications
-        self._convert_application_tosca_to_k3s()
+        #self._convert_application_tosca_to_k3s()
 
         # Step 5: Deploy applications using the converted manifests
-        self._deploy_application()
+        #self._deploy_application()
 
     def _process_app_TOSCA(self):
         """Step 1:  Initialise connection to RA API servers"""
