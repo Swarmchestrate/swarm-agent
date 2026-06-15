@@ -1,85 +1,247 @@
 # Swarmchestrate - Swarm Agent
 
-This repository contains the implementation of the swarm agents (SA).
-As a user, you do not need to worry about setting up SA, as the resource agent prepares everything required and launches the swarm agents.
-This README file is intended only to help you understand the system’s setup and workflow.
+This repository contains the implementation of the Swarm Agent (SA), a core component of the Swarmchestrate platform.
 
-## Setup
+In a typical Swarmchestrate deployment, users do not need to interact directly with the SA. The Resource Agent (RA) automatically prepares the required configuration files and deploys the SA to the target Kubernetes cluster.
 
-The SA will be deployed as a DaemonSet resource running on each node of the k3s cluster.
+This document provides an overview of the SA architecture, workflow, and standalone deployment procedure.
 
-Each SA takes two ConfigMaps as inputs, i.e., config.yaml, and tosca.yaml.
-The config.yaml defines SA-specific configuration data for its initialisation.
-The tosca.yaml stores application's tosca file. This is identical for all SAs.
+---
 
-These configuration files are prepared by the resource agent; therefore, users do not need to worry about them.
+## Overview
 
-<!--
-//To configure the SA correctly, modify the config.json file inside the scripts folder. 
+The Swarm Agent is deployed as a Kubernetes DaemonSet, ensuring that one instance runs on every node of a K3s cluster.
 
+Each SA instance is initialized using two ConfigMaps:
 
-//The config.json contains the P2P IP, P2P port, and the names of the k3s cluster’s nodes. Enter these values according to your own setup.
+* **config.yaml** – contains SA-specific configuration parameters.
+* **tosca.yaml** – contains the application's Swarm Application Template (SAT) written in TOSCA.
 
-//After that, you can run build-and-deploy.sh, which will build a swarm-agent image that matches your platform and deploy the SA by applying the k3s manifests in the k3s folder.
+In a standard Swarmchestrate workflow, these ConfigMaps are generated automatically by the Resource Agent.
 
-
-
-
-//###### LSA implementation
-
-//### Step1: deployment
-//(Done) LSA is a python3 implementation which will be deployed as a DaemonSet inside a single node of k3s cluster. The first SA is deployed as LSA.
-//(Done) After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the ADT defined in config/tosca.yaml.
-
-//### Step2: p2p network initialisation
-//(Done) With the configuration file loaded, LSA knows the p2p network ip and port, it then joins in it.
-
-//### Step3: tosca translation
-//(Done) It uses tosca library to convert application's tosca file into k3s manitests.
-////This is done by tosca_converter library: https://github.com/ZeWang42/tosca_converter.git
-
-////(TODO) Version 2: It iterates the TOSCA node templates defined in ADT and converts them into either resource requests or k3s manifests accordingly.
-////The converson will be done by the scripts provided in the node template interface section.
-
-////### Step4: request for resources (This function has been removed)
-////(TODO) LSA initialises required resource one by one. This will be done by communicating with corresponding RA through the p2p network.
-
-//### Step4: deploys k3s manifests of MicroSVC
-//(Done) LSA deploys k3s manifests of microservices that are assigned on its node.
-
-//###### 
--->
+---
 
 ## Feature Status
 
-### Features
+### Supported Features
 
-#### Translate application TOSCA into k3s manifests
-#### Deploying application's k3s manifests
+* Translation of application TOSCA templates into Kubernetes manifests
+* Deployment of generated Kubernetes manifests
+* Distributed deployment through Kubernetes DaemonSets
 
-### Limitations
+### Current Limitations
 
-#### Runtime reconfiguration
-- Pod-level scaling
-- VM-level scaling
-- Pod migration
+#### Runtime Reconfiguration
+
+The following capabilities are not yet supported:
+
+* Pod-level scaling
+* VM-level scaling
+* Pod migration
+
+---
 
 ## Workflow
 
-### Step1: deployment
-SA is deployed as a DaemonSet inside a freshly initialised k3s node.
+### Step 1: Deployment
 
-After the deployment, it first loads the configuration file defined in the config/config.yaml, and then the SAT defined in config/tosca.yaml.
-<!--
-//### Step2: p2p network initialisation
-//With the configuration file loaded, SA knows the p2p network ip and port, it then joins in it.
--->
+The Swarm Agent is deployed as a Kubernetes DaemonSet in a K3s cluster.
 
-### Step2: tosca translation
-It uses tosca library to convert application's tosca file into k3s manitests.
+Upon startup, each SA instance loads:
+
+* `config/config.yaml`
+* `config/tosca.yaml`
+
+These files provide the runtime configuration and application description required for deployment.
+
+### Step 2: TOSCA Translation
+
+The SA translates the application's SAT (Swarm Application Template) into Kubernetes manifests using the TOSCA translation framework.
+
+### Step 3: Application Deployment
+
+The SA deploys the generated Kubernetes manifests corresponding to the microservices assigned to its node.
+
+---
+
+# Standalone Mode Quick Start
+
+The Swarm Agent can also be executed as a standalone component without a Resource Agent.
+
+In standalone mode, the SA can translate and deploy a SAT directly onto a Kubernetes cluster.
+
+Since the SA is deployed as a Kubernetes DaemonSet, you must prepare the required deployment manifests before deployment.
+
+---
+
+## Prerequisites
+
+* A running Kubernetes or K3s cluster
+* Swarm Agent deployment manifests
+* Access to `kubectl`
+
+---
+
+## Build and Push the Swarm Agent Image
+
+The provided build script creates a multi-architecture Docker image supporting both AMD64 and ARM64 platforms.
+
+From the repository root:
+
+```bash
+cd scripts
+./build-and-push.sh
+```
+
+The image is pushed to the configured container registry and can be used on heterogeneous Kubernetes clusters.
+
+---
+
+## Generate Deployment Manifests
+
+Before deploying the SA, generate the required ConfigMaps and deployment manifests.
+
+The generation script requires:
+
+* A unique application identifier (`job_id`)
+* The path to the SAT/TOSCA file
+* The Hub RA IP address (optional, defaults to localhost)
+* The Kubernetes leader node name (optional, defaults to `master`)
+
+Example:
+
+```bash
+cd scripts
+
+python3 generate-configMaps.py \
+  --job-id stressng \
+  --tosca-path ../KB/stressng_tosca.yaml \
+  --hub-ra-ip localhost \
+  --leader master
+```
+
+The script automatically:
+
+1. Reads the Kubernetes node names from the cluster.
+2. Generates the Swarm Agent configuration.
+3. Creates the TOSCA ConfigMap.
+4. Copies the base Kubernetes deployment manifests.
+
+Generated files are placed in:
+
+```bash
+output/cluster_<job_id>/
+```
+
+Example:
+
+```bash
+output/cluster_stressng/
+```
+
+Contents:
+
+```text
+00-namespace-swarm-system.yaml
+01-rbac-swarm-agent.yaml
+02-daemonset-swarm-agent.yaml
+03-configmap-swarm-agent-tosca.yaml
+04-configmap-swarm-agent-config.yaml
+```
+
+---
+
+## Deploy the Swarm Agent
+
+Apply the generated manifests:
+
+```bash
+kubectl apply -f output/cluster_stressng/
+```
 
 
-### Step3: deploys k3s manifests of MicroSVC
-SA deploys k3s manifests of microservices that are assigned on its node.
+---
 
-###### 
+## Verify Deployment
+
+Verify that the Swarm Agents are running:
+
+```bash
+kubectl get pods -n swarm-system -o wide
+```
+
+Expected output:
+
+```text
+swarm-agent-xxxxx   1/1   Running
+```
+
+View logs:
+
+```bash
+kubectl logs -n swarm-system -l app=swarm-agent -f
+```
+
+---
+
+## Verify Application Deployment
+
+Once the Swarm Agents have started, they automatically translate and deploy the SAT.
+
+List deployed workloads:
+
+```bash
+kubectl get pods -A
+```
+
+For the stress-ng example:
+
+```bash
+kubectl get pods -l app=stressng -o wide
+```
+
+Inspect logs:
+
+```bash
+kubectl logs -l app=stressng
+```
+
+---
+
+## Notes
+
+### Kubernetes Node Discovery
+
+The generated Swarm configuration uses the Kubernetes node names obtained from:
+
+```bash
+kubectl get nodes
+```
+
+Example:
+
+```text
+master
+worker-1
+worker-2
+worker-3
+worker-4
+```
+
+### SAT Input
+
+The generated TOSCA ConfigMap is created from the SAT specified via:
+
+```bash
+--tosca-path
+```
+
+### Hub RA IP
+
+The Hub RA IP is configured through:
+
+```bash
+--hub-ra-ip
+```
+
+When running in standalone mode without an external Resource Agent, `localhost` can be used.
