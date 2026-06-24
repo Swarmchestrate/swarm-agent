@@ -119,6 +119,7 @@ python3 generate-configMaps.py \
   --hub-ra-ip localhost \
   --leader master
 ```
+One can also edit and run the run-generate-configMaps.sh to achieve the above step. 
 
 The script automatically:
 
