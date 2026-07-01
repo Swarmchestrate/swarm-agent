@@ -99,6 +99,8 @@ sudo ./scripts/install-k3s.sh --role worker --node-name my-worker --cluster-name
 
 Optional flags: `--k3s-version`, `--flannel-iface`, `--node-ip`, `--tls-san`, `--extra-labels`, `--dry-run`.
 
+> Ensure ports `6443/TCP`, `8472/UDP`, and `10250/TCP` are open in your security group before running.
+
 ---
 
 ## Build and Push the Swarm Agent Image
