@@ -10,7 +10,7 @@ listener that buffers samples, and `query_metric_values` drains that buffer.
 So a single "get" here means: subscribe -> wait a collection window -> query ->
 unsubscribe.
 
-Two flows are supported (both are in the architecture diagram):
+Two flows are supported:
 - "standard": composite/standard metrics            -> {metric: [values]}
 - "raw":      per-node EPA raw metrics              -> {metric: {ip: [{timestamp, value}]}}
 
@@ -22,45 +22,52 @@ Broker config comes from the environment (read by swchmonclient itself):
 import time
 import logging
 
-import yaml
-
 logger = logging.getLogger("MonitoringInput")
 
-# `swchmonclient` is imported inside get_monitoring_data so the pure
-# helpers below (metric_names_from_sat, slo_violations_from_sat) stay usable even
-# where the monitor client lib is not installed yet.
+# `swchmonclient` and `sardou` are imported lazily inside the functions that use
+# them, so this module stays importable where those libs are not installed yet.
 
 DEFAULT_METRIC = "cpu_util_instance"
 
 
+def get_monitoring_details(tosca_path: str) -> dict:
+    """
+    Full per-microservice monitoring details (metrics + slo-constraints) from the
+    SAT, via the official Sardou TOSCA lib — we do not parse the SAT ourselves.
+
+    Returns e.g. {"<ms>": {"metrics": {"raw": [...], "composite": [...]},
+                           "slo-constraints": {...}}}
+
+    Requires the `puccini-tosca` binary (already present in the SA image).
+    """
+    from sardou import Sardou  # lazy: keeps module importable without Sardou
+    sat = Sardou(tosca_path)
+    return sat.get_monitoring() or {}
+
+
 def metric_names_from_sat(tosca_path: str) -> list:
     """
-    Extract the metric names declared in a SAT's `capabilities.metrics`
-    (raw + composite). Falls back to [DEFAULT_METRIC] if none are found or the
-    file cannot be read.
+    Metric names (raw + composite) declared in a SAT, obtained via the Sardou
+    lib's get_monitoring(). Falls back to [DEFAULT_METRIC] if the SAT cannot
+    be processed.
 
-    The SA already knows its SAT path, so metric names need not be hardcoded.
+    Whatever metrics an application's SAT declares (CPU, memory, ...) are
+    returned dynamically — nothing is hardcoded here.
     """
     try:
-        with open(tosca_path, "r") as f:
-            sat = yaml.safe_load(f)
+        details = get_monitoring_details(tosca_path)
     except Exception as e:
-        logger.warning(f"Could not read SAT '{tosca_path}': {e}; using default metric")
+        logger.warning(
+            f"Sardou could not process SAT '{tosca_path}': {e}; using default metric"
+        )
         return [DEFAULT_METRIC]
 
     names = []
-    node_templates = (
-        sat.get("service_template", {}).get("node_templates", {})
-    )
-    for node in node_templates.values():
-        metrics = (
-            node.get("capabilities", {})
-            .get("metrics", {})
-            .get("properties", {})
-        )
+    for entry in details.values():
+        metrics = entry.get("metrics") or {}
         for group in ("raw", "composite"):
-            for entry in metrics.get(group, []) or []:
-                name = entry.get("name")
+            for m in metrics.get(group) or []:
+                name = m.get("name")
                 if name:
                     names.append(name)
 
@@ -190,8 +197,9 @@ _OPERATORS = {
 
 def slo_violations_from_sat(monitoring_data: dict, tosca_path: str) -> list:
     """
-    Evaluate the SAT `slo-constraints` against already-collected standard
-    monitoring data (the diagram's second monitor-client output).
+    Evaluate the SAT `slo-constraints` (obtained via the Sardou lib) against
+    already-collected standard monitoring data (the diagram's second
+    monitor-client output).
 
     Compares the mean of the collected values for the constraint's metric to its
     threshold using the declared operator. Returns a list of violation records:
@@ -201,26 +209,20 @@ def slo_violations_from_sat(monitoring_data: dict, tosca_path: str) -> list:
     Only meaningful for mode="standard" (list-of-values per metric).
     """
     try:
-        with open(tosca_path, "r") as f:
-            sat = yaml.safe_load(f)
+        details = get_monitoring_details(tosca_path)
     except Exception as e:
-        logger.warning(f"Could not read SAT '{tosca_path}': {e}; no SLO check")
+        logger.warning(f"Sardou could not process SAT '{tosca_path}': {e}; no SLO check")
         return []
 
     metrics_values = monitoring_data.get("metrics", {})
     results = []
 
-    node_templates = sat.get("service_template", {}).get("node_templates", {})
-    for node in node_templates.values():
-        slo = (
-            node.get("capabilities", {})
-            .get("slo-constraints", {})
-            .get("properties")
-        )
+    for entry in details.values():
+        slo = entry.get("slo-constraints")
         if not slo:
             continue
 
-        # A node may declare a single constraint (dict) or several (list).
+        # Sardou may return a single constraint (dict) or several (list).
         constraints = slo if isinstance(slo, list) else [slo]
         for c in constraints:
             metric = c.get("metric")
