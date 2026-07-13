@@ -45,6 +45,7 @@ RUN pip install --no-cache-dir --upgrade git+https://github.com/Swarmchestrate/l
 COPY src/main.py .
 COPY src/SA.py .
 COPY src/utility.py .
+COPY src/monitoring_input.py .
 
 # Create config directory
 RUN mkdir -p /config

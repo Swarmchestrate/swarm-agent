@@ -16,9 +16,12 @@ spec:
       containers:
       - name: swarm-agent
         #image: zewang42/swarm-agent-7.0:amd
-        image: zewang42/swarm-agent-7.0:standalone
+        #image: zewang42/swarm-agent-7.0:standalone   <- upstream prebuilt image (no monitoring code inside)
+        # locally built image incl. monitoring_input + SA monitoring loop
+        # (docker build + k3s ctr images import on each node)
+        image: swarm-agent:raasta-a
        # image: ghcr.io/swarmchestrate/swarm-agent:dev
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9090
         env:
@@ -30,6 +33,9 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.labels['role']
+        # monitoring broker lives in the "default" namespace; SA pods run in swarm-system
+        - name: MON_CLIENT_STOMP_HOST
+          value: "emsserver-ems-server.default"
         volumeMounts:
         - name: config
           mountPath: /config

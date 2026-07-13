@@ -112,6 +112,11 @@ class SwarmAgent:
         self.resource_id = self.config['resource_id']
         self.sa_role = self.config['SA_role']
 
+        # Latest monitoring data collected by the leader's monitoring loop
+        # (inputs for the Optimiser; None until the first cycle completes)
+        self.latest_monitoring = None
+        self.latest_slo_violations = []
+
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
     def start(self):
@@ -169,6 +174,48 @@ class SwarmAgent:
        
         # Step 5: Deploy applications using the converted manifests
         self._deploy_application()
+
+        # Step 6: Start collecting the SAT-declared metrics (monitoring lib)
+        self._start_monitoring_loop()
+
+    def _start_monitoring_loop(self, interval_seconds: int = 60, collect_seconds: int = 90):
+        """
+        Leader-only background loop: read the metric names from the SAT (via the
+        Sardou lib), subscribe/poll them through the monitoring client lib, log
+        every value, evaluate the SAT slo-constraints, and keep the latest
+        results on self.latest_monitoring / self.latest_slo_violations for the
+        Optimiser inputs.
+        """
+        import time
+        from monitoring_input import (
+            metric_names_from_sat,
+            get_monitoring_data,
+            slo_violations_from_sat,
+        )
+
+        def loop():
+            while self.is_running:
+                try:
+                    names = metric_names_from_sat(self.tosca_path)
+                    self.logger.info(f"[MonitoringLoop] metrics from SAT: {names}")
+                    data = get_monitoring_data(
+                        names, mode="standard", collect_seconds=collect_seconds
+                    )
+                    violations = slo_violations_from_sat(data, self.tosca_path)
+                    self.latest_monitoring = data
+                    self.latest_slo_violations = violations
+                    total = sum(len(v) for v in data["metrics"].values())
+                    violated = [v["name"] for v in violations if v["violated"]]
+                    self.logger.info(
+                        f"[MonitoringLoop] cycle done: {total} value(s); "
+                        f"SLO violated: {violated if violated else 'none'}"
+                    )
+                except Exception as e:
+                    self.logger.error(f"[MonitoringLoop] cycle failed: {e}")
+                time.sleep(interval_seconds)
+
+        threading.Thread(target=loop, name="sa-monitoring", daemon=True).start()
+        self.logger.info("[MonitoringLoop] started (SAT-driven metric collection)")
 
     def _start_as_worker(self):
         """Start as Worker Swarm Agent"""
