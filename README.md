@@ -82,6 +82,27 @@ Since the SA is deployed as a Kubernetes DaemonSet, you must prepare the require
 
 ---
 
+## Install K3s
+
+> **Standalone mode only.** In a standard Swarmchestrate deployment the Resource Agent provisions the cluster automatically.
+
+Installs K3s on a pre-provisioned node and registers it with the Swarmchestrate node label.
+
+```bash
+# Master
+sudo ./scripts/install-k3s.sh --role master --node-name my-master --cluster-name my-cluster
+
+# Worker (use token and IP printed by the master)
+sudo ./scripts/install-k3s.sh --role worker --node-name my-worker --cluster-name my-cluster \
+  --token <token> --master-ip <master-ip>
+```
+
+Optional flags: `--k3s-version`, `--flannel-iface`, `--node-ip`, `--tls-san`, `--extra-labels`, `--dry-run`.
+
+> Ensure ports `6443/TCP`, `8472/UDP`, and `10250/TCP` are open in your security group before running.
+
+---
+
 ## Build and Push the Swarm Agent Image
 
 The provided build script creates a multi-architecture Docker image supporting both AMD64 and ARM64 platforms.
@@ -94,6 +115,36 @@ cd scripts
 ```
 
 The image is pushed to the configured container registry and can be used on heterogeneous Kubernetes clusters.
+
+---
+
+## Create Registry Secrets
+
+> **Standalone mode only.** In a standard Swarmchestrate deployment registry credentials are managed by the Resource Agent.
+
+Creates Kubernetes `docker-registry` secrets on the master node. Run after K3s is installed.
+
+```bash
+# Via config file (recommended)
+sudo ./scripts/create-registry-secrets.sh --config registry-config.yaml
+
+# Via CLI flags
+sudo ./scripts/create-registry-secrets.sh \
+  --registry docker.io --username myuser --password mypassword --secret-name regcred-dockerhub
+```
+
+`registry-config.yaml` format:
+
+```yaml
+namespace: default
+registries:
+  - registry: docker.io
+    username: myuser
+    password: mypassword
+    secret_name: regcred-dockerhub  # optional, defaults to regcred-0, regcred-1...
+```
+
+Optional flags: `--namespace`, `--dry-run`.
 
 ---
 
