@@ -39,10 +39,23 @@ def get_monitoring_details(tosca_path: str) -> dict:
                            "slo-constraints": {...}}}
 
     Requires the `puccini-tosca` binary (already present in the SA image).
+    Retries transient failures: concurrent Sardou runs in one container can race
+    on its profile cache (~/.cache/sardou) and hit a truncated file (EOF).
     """
-    from sardou import Sardou  # lazy: keeps module importable without Sardou
-    sat = Sardou(tosca_path)
-    return sat.get_monitoring() or {}
+    from sardou import Sardou
+    last_err = None
+    for attempt in range(1, 4):
+        try:
+            sat = Sardou(tosca_path)
+            return sat.get_monitoring() or {}
+        except Exception as e:
+            last_err = e
+            if attempt < 3:
+                logger.warning(
+                    f"Sardou attempt {attempt}/3 failed for '{tosca_path}': {e}; retrying"
+                )
+                time.sleep(2)
+    raise last_err
 
 
 def metric_names_from_sat(tosca_path: str) -> list:

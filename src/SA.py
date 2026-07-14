@@ -188,16 +188,30 @@ class SwarmAgent:
         """
         import time
         from monitoring_input import (
+            DEFAULT_METRIC,
             metric_names_from_sat,
             get_monitoring_data,
             slo_violations_from_sat,
         )
 
         def loop():
+            # The SAT does not change at runtime: resolve the metric names once
+            # and cache them (also avoids concurrent Sardou cache races).
+            cached_names = None
             while self.is_running:
                 try:
-                    names = metric_names_from_sat(self.tosca_path)
-                    self.logger.info(f"[MonitoringLoop] metrics from SAT: {names}")
+                    if cached_names is None:
+                        names = metric_names_from_sat(self.tosca_path)
+                        if names != [DEFAULT_METRIC]:
+                            cached_names = names
+                            self.logger.info(f"[MonitoringLoop] metrics from SAT (cached): {names}")
+                        else:
+                            self.logger.warning(
+                                "[MonitoringLoop] SAT metric extraction fell back to the "
+                                "default metric; will retry next cycle"
+                            )
+                    else:
+                        names = cached_names
                     data = get_monitoring_data(
                         names, mode="standard", collect_seconds=collect_seconds
                     )

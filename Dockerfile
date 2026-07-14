@@ -46,6 +46,7 @@ COPY src/main.py .
 COPY src/SA.py .
 COPY src/utility.py .
 COPY src/monitoring_input.py .
+COPY src/pipeline_demo_sa.py .
 
 # Create config directory
 RUN mkdir -p /config
