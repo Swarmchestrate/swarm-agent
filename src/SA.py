@@ -178,55 +178,73 @@ class SwarmAgent:
         # Step 6: Start collecting the SAT-declared metrics (monitoring lib)
         self._start_monitoring_loop()
 
-    def _start_monitoring_loop(self, interval_seconds: int = 60, collect_seconds: int = 90):
+    def _start_monitoring_loop(self, interval_seconds: int = 60):
         """
-        Leader-only background loop: read the metric names from the SAT (via the
-        Sardou lib), subscribe/poll them through the monitoring client lib, log
-        every value, evaluate the SAT slo-constraints, and keep the latest
-        results on self.latest_monitoring / self.latest_slo_violations for the
-        Optimiser inputs.
+        1. identify the metrics to subscribe (from the SAT, via the Sardou lib)
+        2. subscribe once
+        3. poll every `interval_seconds` — one complete snapshot per poll
+           (interval >= the SAT collection frequencies, so every metric has
+           values in every poll; metric values are logged at DEBUG level)
+        4. evaluate the SAT slo-constraints on each snapshot
+        Latest results are kept on self.latest_monitoring /
+        self.latest_slo_violations as inputs for the Optimiser.
         """
         import time
         from monitoring_input import (
-            DEFAULT_METRIC,
-            metric_names_from_sat,
-            get_monitoring_data,
-            slo_violations_from_sat,
+            get_monitoring_details,
+            metric_names_from_details,
+            subscribe_metrics,
+            poll_metrics,
+            evaluate_slo,
         )
 
         def loop():
-            # The SAT does not change at runtime: resolve the metric names once
-            # and cache them (also avoids concurrent Sardou cache races).
+            # The SAT does not change at runtime: process it once and cache
+            # names + slo details (also avoids concurrent Sardou cache races).
             cached_names = None
+            cached_details = None
+            subscribed = False
             while self.is_running:
                 try:
                     if cached_names is None:
-                        names = metric_names_from_sat(self.tosca_path)
-                        if names != [DEFAULT_METRIC]:
-                            cached_names = names
-                            self.logger.info(f"[MonitoringLoop] metrics from SAT (cached): {names}")
-                        else:
+                        cached_details = get_monitoring_details(self.tosca_path)
+                        names = metric_names_from_details(cached_details)
+                        if not names:
                             self.logger.warning(
-                                "[MonitoringLoop] SAT metric extraction fell back to the "
-                                "default metric; will retry next cycle"
+                                "[MonitoringLoop] SAT declares no metrics; retrying next cycle"
                             )
-                    else:
-                        names = cached_names
-                    data = get_monitoring_data(
-                        names, mode="standard", collect_seconds=collect_seconds
-                    )
-                    violations = slo_violations_from_sat(data, self.tosca_path)
-                    self.latest_monitoring = data
+                            time.sleep(interval_seconds)
+                            continue
+                        cached_names = names
+                        self.logger.info(f"[MonitoringLoop] metrics from SAT: {cached_names}")
+
+                    if not subscribed:
+                        subscribe_metrics(cached_names)
+                        subscribed = True
+                        self.logger.info(
+                            f"[MonitoringLoop] subscribed to {len(cached_names)} metric(s); "
+                            f"polling every {interval_seconds}s"
+                        )
+
+                    time.sleep(interval_seconds)
+                    snapshot = poll_metrics(cached_names)
+                    envelope = {"source": "monitoring", "mode": "standard", "metrics": snapshot}
+                    violations = evaluate_slo(envelope, cached_details)
+                    self.latest_monitoring = envelope
                     self.latest_slo_violations = violations
-                    total = sum(len(v) for v in data["metrics"].values())
+
+                    total = sum(len(v) for v in snapshot.values())
+                    missing = [m for m in cached_names if not snapshot.get(m)]
                     violated = [v["name"] for v in violations if v["violated"]]
                     self.logger.info(
-                        f"[MonitoringLoop] cycle done: {total} value(s); "
+                        f"[MonitoringLoop] poll done: {total} value(s); "
+                        f"missing: {missing if missing else 'none'}; "
                         f"SLO violated: {violated if violated else 'none'}"
                     )
                 except Exception as e:
-                    self.logger.error(f"[MonitoringLoop] cycle failed: {e}")
-                time.sleep(interval_seconds)
+                    self.logger.error(f"[MonitoringLoop] cycle failed: {e}; will resubscribe")
+                    subscribed = False
+                    time.sleep(interval_seconds)
 
         threading.Thread(target=loop, name="sa-monitoring", daemon=True).start()
         self.logger.info("[MonitoringLoop] started (SAT-driven metric collection)")

@@ -43,7 +43,7 @@ def get_monitoring_details(tosca_path: str) -> dict:
     on its profile cache (~/.cache/sardou) and hit a truncated file (EOF).
     """
     from sardou import Sardou
-    last_err = None
+    last_err = RuntimeError(f"Sardou failed for '{tosca_path}'")
     for attempt in range(1, 4):
         try:
             sat = Sardou(tosca_path)
@@ -56,6 +56,19 @@ def get_monitoring_details(tosca_path: str) -> dict:
                 )
                 time.sleep(2)
     raise last_err
+
+
+def metric_names_from_details(details: dict) -> list:
+    """Metric names (raw + composite) from an already-fetched get_monitoring() result."""
+    names = []
+    for entry in details.values():
+        metrics = entry.get("metrics") or {}
+        for group in ("raw", "composite"):
+            for m in metrics.get(group) or []:
+                name = m.get("name")
+                if name:
+                    names.append(name)
+    return names
 
 
 def metric_names_from_sat(tosca_path: str) -> list:
@@ -75,16 +88,7 @@ def metric_names_from_sat(tosca_path: str) -> list:
         )
         return [DEFAULT_METRIC]
 
-    names = []
-    for entry in details.values():
-        metrics = entry.get("metrics") or {}
-        for group in ("raw", "composite"):
-            for m in metrics.get(group) or []:
-                name = m.get("name")
-                if name:
-                    names.append(name)
-
-    return names or [DEFAULT_METRIC]
+    return metric_names_from_details(details) or [DEFAULT_METRIC]
 
 
 def get_monitoring_data(
@@ -147,7 +151,8 @@ def get_monitoring_data(
                     batch = query_metric_values(metric)
                     if batch:
                         collected[metric].extend(batch)
-                    logger.info(f"[poll {i}/{polls}] '{metric}': {batch}")
+                    # metric values are debugging detail (Jozsef): DEBUG, not INFO
+                    logger.debug(f"[poll {i}/{polls}] '{metric}': {batch}")
 
             for metric in metrics:
                 logger.info(
@@ -183,7 +188,7 @@ def get_monitoring_data(
                         if samples:
                             collected[metric][ip].extend(samples)
                             fresh[ip] = samples
-                    logger.info(f"[poll {i}/{polls}] '{metric}': {fresh if fresh else 'no new samples'}")
+                    logger.debug(f"[poll {i}/{polls}] '{metric}': {fresh if fresh else 'no new samples'}")
 
             for metric in metrics:
                 total = sum(len(s) for s in collected[metric].values())
@@ -198,6 +203,43 @@ def get_monitoring_data(
                     logger.warning(f"Unsubscribe failed for '{metric}': {e}")
 
     return {"source": "monitoring", "mode": mode, "metrics": collected}
+
+
+# --- persistent-subscription primitives (subscribe once, poll periodically) ---
+# The Optimiser needs a complete snapshot per poll: subscribe once at startup,
+# then poll at an interval >= the SAT's collection frequencies (e.g. 60s), so
+# every metric has values in every poll (Jozsef, 2026-07-15).
+
+def subscribe_metrics(metrics: list) -> None:
+    """Start (or reuse) standard-metric subscriptions for all given metrics."""
+    from swchmonclient import subscribe_metric
+    for metric in metrics:
+        logger.info(f"Subscribing to standard metric '{metric}'")
+        subscribe_metric(metric)
+
+
+def poll_metrics(metrics: list) -> dict:
+    """
+    One snapshot: drain each subscribed metric's buffer once.
+    Returns {metric: [values]}. Values are logged at DEBUG level.
+    """
+    from swchmonclient import query_metric_values
+    snapshot = {}
+    for metric in metrics:
+        values = query_metric_values(metric)
+        snapshot[metric] = values
+        logger.debug(f"poll '{metric}': {values}")
+    return snapshot
+
+
+def unsubscribe_metrics(metrics: list) -> None:
+    """Stop the subscriptions (best effort)."""
+    from swchmonclient import unsubscribe_metric
+    for metric in metrics:
+        try:
+            unsubscribe_metric(metric)
+        except Exception as e:
+            logger.warning(f"Unsubscribe failed for '{metric}': {e}")
 
 
 _OPERATORS = {
@@ -227,6 +269,14 @@ def slo_violations_from_sat(monitoring_data: dict, tosca_path: str) -> list:
         logger.warning(f"Sardou could not process SAT '{tosca_path}': {e}; no SLO check")
         return []
 
+    return evaluate_slo(monitoring_data, details)
+
+
+def evaluate_slo(monitoring_data: dict, details: dict) -> list:
+    """
+    Evaluate slo-constraints (an already-fetched get_monitoring() result)
+    against collected standard monitoring data — no SAT re-processing.
+    """
     metrics_values = monitoring_data.get("metrics", {})
     results = []
 

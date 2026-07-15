@@ -36,6 +36,9 @@ spec:
         # monitoring broker lives in the "default" namespace; SA pods run in swarm-system
         - name: MON_CLIENT_STOMP_HOST
           value: "emsserver-ems-server.default"
+        # metric values log at DEBUG (Jozsef); set to DEBUG to see them
+        - name: SA_LOG_LEVEL
+          value: "INFO"
         volumeMounts:
         - name: config
           mountPath: /config

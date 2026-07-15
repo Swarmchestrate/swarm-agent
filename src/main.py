@@ -35,8 +35,8 @@ def get_node_role():
 def main():
     """Main entry point"""
 
-    # Setup logging
-    setup_logging("INFO")
+    # Setup logging (metric values log at DEBUG; flip via env without rebuild)
+    setup_logging(os.getenv("SA_LOG_LEVEL", "INFO"))
     logger = logging.getLogger("Main")
 
     logger.info("Starting Swarm Agent Application")
