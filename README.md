@@ -88,6 +88,8 @@ Since the SA is deployed as a Kubernetes DaemonSet, you must prepare the require
 
 Installs K3s on a pre-provisioned node and registers it with the Swarmchestrate node label.
 
+Note that the node-name should be same as the microservice name since that's the name of the selector label.
+
 ```bash
 # Master
 sudo ./scripts/install-k3s.sh --role master --node-name my-master --cluster-name my-cluster
