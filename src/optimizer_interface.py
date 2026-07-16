@@ -51,7 +51,7 @@ def collect_inputs(
     tosca_path: str,
     namespace: str = None,
     mode: str = "standard",
-    collect_seconds: int = 30,
+    collect_seconds: int = 60,
 ) -> OptimizerInputs:
     """
     Assemble the Optimiser inputs (LSA steps 1-4, minus the Opt call):

@@ -94,7 +94,7 @@ def metric_names_from_sat(tosca_path: str) -> list:
 def get_monitoring_data(
     metrics: list,
     mode: str = "standard",
-    collect_seconds: int = 30,
+    collect_seconds: int = 60,
     nodes="all",
     raw_window_seconds: int = None,
     poll_interval_seconds: int = 5,
@@ -151,7 +151,7 @@ def get_monitoring_data(
                     batch = query_metric_values(metric)
                     if batch:
                         collected[metric].extend(batch)
-                    # metric values are debugging detail (Jozsef): DEBUG, not INFO
+                    # metric values are debugging detail: DEBUG, not INFO
                     logger.debug(f"[poll {i}/{polls}] '{metric}': {batch}")
 
             for metric in metrics:
