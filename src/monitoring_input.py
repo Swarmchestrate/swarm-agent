@@ -19,6 +19,7 @@ Broker config comes from the environment (read by swchmonclient itself):
     MON_CLIENT_STOMP_PORT  (default 61610)
 """
 
+import re
 import time
 import logging
 
@@ -209,6 +210,25 @@ def get_monitoring_data(
 # The Optimiser needs a complete snapshot per poll: subscribe once at startup,
 # then poll at an interval >= the SAT's collection frequencies (e.g. 60s), so
 # every metric has values in every poll (Jozsef, 2026-07-15).
+
+def poll_interval_from_details(details: dict, floor_seconds: int = 60) -> int:
+    """
+    Poll interval derived from the SAT: the slowest collection_frequency
+    (raw or composite) in seconds, never below floor_seconds. A poll is only
+    complete once the slowest metric has had time to publish a value.
+    Frequencies that are missing or unparseable are ignored (floor applies).
+    """
+    units = {"sec": 1, "min": 60}
+    slowest = 0
+    for entry in details.values():
+        metrics = entry.get("metrics") or {}
+        for group in ("raw", "composite"):
+            for m in metrics.get(group) or []:
+                match = re.match(r"\s*(\d+)\s*(sec|min)", str(m.get("collection_frequency", "")))
+                if match:
+                    slowest = max(slowest, int(match.group(1)) * units[match.group(2)])
+    return max(slowest, floor_seconds)
+
 
 def subscribe_metrics(metrics: list) -> None:
     """Start (or reuse) standard-metric subscriptions for all given metrics."""

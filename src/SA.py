@@ -182,9 +182,9 @@ class SwarmAgent:
         """
         1. identify the metrics to subscribe (from the SAT, via the Sardou lib)
         2. subscribe once
-        3. poll every `interval_seconds` — one complete snapshot per poll
-           (interval >= the SAT collection frequencies, so every metric has
-           values in every poll; metric values are logged at DEBUG level)
+        3. poll at the slowest SAT collection_frequency (floor
+           `interval_seconds`), so every metric has values in every poll;
+           metric values are logged at DEBUG level
         4. evaluate the SAT slo-constraints on each snapshot
         Latest results are kept on self.latest_monitoring /
         self.latest_slo_violations as inputs for the Optimiser.
@@ -193,6 +193,7 @@ class SwarmAgent:
         from monitoring_input import (
             get_monitoring_details,
             metric_names_from_details,
+            poll_interval_from_details,
             subscribe_metrics,
             poll_metrics,
             evaluate_slo,
@@ -204,6 +205,7 @@ class SwarmAgent:
             cached_names = None
             cached_details = None
             subscribed = False
+            poll_seconds = interval_seconds
             while self.is_running:
                 try:
                     if cached_names is None:
@@ -213,20 +215,27 @@ class SwarmAgent:
                             self.logger.warning(
                                 "[MonitoringLoop] SAT declares no metrics; retrying next cycle"
                             )
-                            time.sleep(interval_seconds)
+                            time.sleep(poll_seconds)
                             continue
                         cached_names = names
+                        poll_seconds = poll_interval_from_details(
+                            cached_details, floor_seconds=interval_seconds
+                        )
                         self.logger.info(f"[MonitoringLoop] metrics from SAT: {cached_names}")
+                        self.logger.info(
+                            f"[MonitoringLoop] poll interval {poll_seconds}s "
+                            f"(slowest SAT collection_frequency, floor {interval_seconds}s)"
+                        )
 
                     if not subscribed:
                         subscribe_metrics(cached_names)
                         subscribed = True
                         self.logger.info(
                             f"[MonitoringLoop] subscribed to {len(cached_names)} metric(s); "
-                            f"polling every {interval_seconds}s"
+                            f"polling every {poll_seconds}s"
                         )
 
-                    time.sleep(interval_seconds)
+                    time.sleep(poll_seconds)
                     snapshot = poll_metrics(cached_names)
                     envelope = {"source": "monitoring", "mode": "standard", "metrics": snapshot}
                     violations = evaluate_slo(envelope, cached_details)
@@ -244,7 +253,7 @@ class SwarmAgent:
                 except Exception as e:
                     self.logger.error(f"[MonitoringLoop] cycle failed: {e}; will resubscribe")
                     subscribed = False
-                    time.sleep(interval_seconds)
+                    time.sleep(poll_seconds)
 
         threading.Thread(target=loop, name="sa-monitoring", daemon=True).start()
         self.logger.info("[MonitoringLoop] started (SAT-driven metric collection)")
