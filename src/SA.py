@@ -222,10 +222,7 @@ class SwarmAgent:
                             cached_details, floor_seconds=interval_seconds
                         )
                         self.logger.info(f"[MonitoringLoop] metrics from SAT: {cached_names}")
-                        self.logger.info(
-                            f"[MonitoringLoop] poll interval {poll_seconds}s "
-                            f"(slowest SAT collection_frequency, floor {interval_seconds}s)"
-                        )
+                        self.logger.info(f"[MonitoringLoop] poll interval {poll_seconds}s")
 
                     if not subscribed:
                         subscribe_metrics(cached_names)
