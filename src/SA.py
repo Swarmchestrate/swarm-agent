@@ -171,12 +171,49 @@ class SwarmAgent:
         self.logger.info("[DEBUG] Now enter convert application tosca")
         self._convert_application_tosca_to_k3s()
 
-       
+
+        # Step 4: Deploy the monitoring stack from the same SAT (autonomous;
+        # needs deployer RBAC on the swarm-agent service account). Best-effort.
+        self._deploy_monitoring_stack()
+
         # Step 5: Deploy applications using the converted manifests
         self._deploy_application()
 
         # Step 6: Start collecting the SAT-declared metrics (monitoring lib)
         self._start_monitoring_loop()
+
+    def _deploy_monitoring_stack(self):
+        """
+        Leader deploys the monitoring stack from the same SAT, so the whole flow
+        (monitoring stack + application + metric subscription) runs autonomously.
+
+        Requires the deployer RBAC on the swarm-agent service account. Idempotent
+        (deploy_monitoring is create-or-patch), so restarts are safe. Best-effort:
+        a failure here does NOT stop the SA — the monitoring loop keeps retrying
+        once the broker is up.
+
+        Controlled by env vars:
+          SA_DEPLOY_MONITORING (default "true")  -> set to "false" to skip
+          SA_MON_USE_KB        (default "false") -> deploy_monitoring use_kb mode
+        """
+        if os.getenv("SA_DEPLOY_MONITORING", "true").strip().lower() not in ("true", "1", "yes"):
+            self.logger.info("[MonitoringDeploy] disabled (SA_DEPLOY_MONITORING); skipping stack deploy")
+            return
+        try:
+            from swchmonclient import deploy_monitoring
+            use_kb = os.getenv("SA_MON_USE_KB", "false").strip().lower() in ("true", "1", "yes")
+            self.logger.info(
+                f"[MonitoringDeploy] deploying monitoring stack from {self.tosca_path} (use_kb={use_kb})"
+            )
+            rc = deploy_monitoring(sat_file=self.tosca_path, use_kb=use_kb)
+            if rc == 0:
+                self.logger.info("[MonitoringDeploy] monitoring stack deployed successfully")
+            else:
+                self.logger.error(f"[MonitoringDeploy] deploy_monitoring returned {rc} (non-zero)")
+        except Exception as e:
+            self.logger.error(
+                f"[MonitoringDeploy] failed: {e}; continuing — monitoring loop will retry once the broker is up"
+            )
 
     def _start_monitoring_loop(self, interval_seconds: int = 60):
         """
@@ -205,6 +242,7 @@ class SwarmAgent:
             cached_names = None
             cached_details = None
             subscribed = False
+            
             poll_seconds = interval_seconds
             while self.is_running:
                 try:
