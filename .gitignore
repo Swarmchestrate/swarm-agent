@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Editor / OS junk
+*.Zone.Identifier
+*:Zone.Identifier
+~$*
+*.swp
+.DS_Store
+
+# Local Office docs
+*.docx
+
+# Local working artifacts (not part of the repo)
+logs/
+archive/

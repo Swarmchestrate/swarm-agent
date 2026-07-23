@@ -23,6 +23,11 @@ from typing import Optional
 
 from monitoring_input import get_monitoring_data, metric_names_from_sat
 from cluster_status import get_cluster_status
+# Future work: cluster_status is a local placeholder. The cluster-status input
+# (pod->node mapping) will come from the k3s-client library (built by another
+# team, in progress). When it lands, wire it into get_cluster_status() below;
+# collect_inputs() already treats it as one of the three Optimiser inputs, so no
+# other change is needed.
 
 logger = logging.getLogger("OptimizerInterface")
 
