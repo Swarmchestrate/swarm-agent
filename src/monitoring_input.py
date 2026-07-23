@@ -209,14 +209,13 @@ def get_monitoring_data(
 # --- persistent-subscription primitives (subscribe once, poll periodically) ---
 # The Optimiser needs a complete snapshot per poll: subscribe once at startup,
 # then poll at an interval >= the SAT's collection frequencies (e.g. 60s), so
-# every metric has values in every poll (Jozsef, 2026-07-15).
+# every metric has values in every poll.
 
 def poll_interval_from_details(details: dict, floor_seconds: int = 60) -> int:
     """
     Poll interval derived from the SAT: the slowest collection_frequency
-    (raw or composite) in seconds, never below floor_seconds. A poll is only
+    (raw or composite) in seconds, never below min_seconds. A poll is only
     complete once the slowest metric has had time to publish a value.
-    Frequencies that are missing or unparseable are ignored (floor applies).
     """
     units = {"sec": 1, "min": 60}
     slowest = 0
