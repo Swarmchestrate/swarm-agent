@@ -41,6 +41,15 @@ def _get_manager():
     return _manager
 
 
+def get_application_manager():
+    """
+    The lib's ApplicationManager (shared instance) for cluster operations the
+    SA delegates to k3s-client: apply_manifest today; the action methods
+    (scale_to, migrate_pod, create_pod, delete_pod) when the Optimiser lands.
+    """
+    return _get_manager()
+
+
 def _fallback_mapping(label_selector: str = None) -> dict:
     """
     TEMPORARY workaround for a k3s-client 0.3.0 bug (reported to its team):

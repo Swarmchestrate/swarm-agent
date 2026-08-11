@@ -499,6 +499,20 @@ class SwarmAgent:
                 fpath = os.path.join(folder, fname)
 
                 self.logger.info(f"Applying {fpath}")
+                # Prefer the k3s-client lib: apply_manifest is create-or-patch,
+                # so re-deploys update in place instead of failing with 409
+                # AlreadyExists. Falls back to the direct apply below if the
+                # lib call fails for any reason.
+                try:
+                    from k3s_client_input import get_application_manager
+                    get_application_manager().apply_manifest(fpath)
+                    self.logger.info(f"[AppDeploy] applied {fpath} via k3s-client lib")
+                    continue
+                except Exception as e:
+                    self.logger.warning(
+                        f"[AppDeploy] k3s-client apply failed for {fpath}: {e}; "
+                        f"falling back to direct apply"
+                    )
                 try:
                     # Can apply multi-doc yaml (--- separators)
                     utils.create_from_yaml(k8s_client, fpath, namespace="default")
