@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - Optimizer_interfaces
     tags:
       - 'v*'
   pull_request:
@@ -46,6 +47,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=optimizer-interfaces,enable=${{ github.ref == 'refs/heads/Optimizer_interfaces' }}
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
