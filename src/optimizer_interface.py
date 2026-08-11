@@ -9,7 +9,7 @@ reconfiguration actions (LSA sequence, step 4):
 
 Current reality:
 - Monitoring data  -> BUILT (monitoring_input.get_monitoring_data)
-- Cluster status   -> BUILT (cluster_status.get_cluster_status)
+- Cluster status   -> BUILT (k3s_client_input.get_cluster_status, k3s-client lib)
 - Predicted values -> AI component PENDING (stubbed, returns None)
 - Opt itself       -> being built (optimize() is a stub)
 
@@ -22,12 +22,12 @@ from dataclasses import dataclass
 from typing import Optional
 
 from monitoring_input import get_monitoring_data, metric_names_from_sat
-from cluster_status import get_cluster_status
-# Future work: cluster_status is a local placeholder. The cluster-status input
-# (pod->node mapping) will come from the k3s-client library (built by another
-# team, in progress). When it lands, wire it into get_cluster_status() below;
-# collect_inputs() already treats it as one of the three Optimiser inputs, so no
-# other change is needed.
+from k3s_client_input import get_cluster_status
+# Cluster status now comes from the official k3s-client library
+# (k3s_client_input.py wraps ApplicationManager.get_pod_node_mapping):
+# {"<msid>": {"<pod>": "<node>"}}. The lib's action methods (create_pod,
+# delete_pod, scale_to, migrate_pod) use the same msid/pod/node identifiers,
+# so future Optimiser actions can reference this mapping directly.
 
 logger = logging.getLogger("OptimizerInterface")
 
@@ -37,7 +37,7 @@ class OptimizerInputs:
     """The three inputs handed to the Optimiser (names mirror the diagram)."""
     predicted_values: Optional[dict]   # from AI component (PENDING -> None)
     monitoring_data: dict              # from the monitor client
-    cluster_status: list               # current pod->node mapping (k3s_client)
+    cluster_status: dict               # {msid: {pod: node}} from the k3s-client lib
 
 
 def get_predicted_values() -> Optional[dict]:
@@ -54,7 +54,7 @@ def get_predicted_values() -> Optional[dict]:
 
 def collect_inputs(
     tosca_path: str,
-    namespace: str = None,
+    label_selector: str = None,
     mode: str = "standard",
     collect_seconds: int = 60,
 ) -> OptimizerInputs:
@@ -63,13 +63,14 @@ def collect_inputs(
     collect monitoring data, read cluster status, and gather AI predictions
     (currently None).
 
-    Metric names are taken from the SAT.
+    Metric names are taken from the SAT. `label_selector` optionally restricts
+    the cluster-status mapping (e.g. "app=stressng"); None = all pods.
     """
     metrics = metric_names_from_sat(tosca_path)
     monitoring_data = get_monitoring_data(
         metrics, mode=mode, collect_seconds=collect_seconds
     )
-    cluster = get_cluster_status(namespace=namespace)
+    cluster = get_cluster_status(label_selector=label_selector)
     predictions = get_predicted_values()
 
     return OptimizerInputs(

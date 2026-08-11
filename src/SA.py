@@ -116,6 +116,8 @@ class SwarmAgent:
         # (inputs for the Optimiser; None until the first cycle completes)
         self.latest_monitoring = None
         self.latest_slo_violations = []
+        # Latest pod->node mapping from the k3s-client lib (Optimiser input 3)
+        self.latest_cluster_status = None
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -235,6 +237,7 @@ class SwarmAgent:
             poll_metrics,
             evaluate_slo,
         )
+        from k3s_client_input import get_cluster_status
 
         def loop():
             # The SAT does not change at runtime: process it once and cache
@@ -276,6 +279,13 @@ class SwarmAgent:
                     violations = evaluate_slo(envelope, cached_details)
                     self.latest_monitoring = envelope
                     self.latest_slo_violations = violations
+
+                    # Optimiser input 3: refresh the pod->node mapping (k3s-client
+                    # lib). Best-effort — cluster status must never break monitoring.
+                    try:
+                        self.latest_cluster_status = get_cluster_status()
+                    except Exception as e:
+                        self.logger.warning(f"[MonitoringLoop] cluster status unavailable: {e}")
 
                     total = sum(len(v) for v in snapshot.values())
                     missing = [m for m in cached_names if not snapshot.get(m)]

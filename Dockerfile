@@ -28,6 +28,14 @@ RUN arch="$(dpkg --print-architecture)" \
     && (dpkg -i /tmp/puccini.deb || apt-get install -f -y) \
     && rm /tmp/puccini.deb
 
+# Install kubectl (required by the k3s-client lib, which shells out to it;
+# in-cluster it authenticates as the pod's ServiceAccount)
+RUN arch="$(dpkg --print-architecture)" \
+    && kver="$(wget -qO- https://dl.k8s.io/release/stable.txt)" \
+    && wget -q "https://dl.k8s.io/release/${kver}/bin/linux/${arch}/kubectl" -O /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl \
+    && kubectl version --client
+
 COPY ./requirements.txt /app/requirements.txt
 
 # Install required packages
@@ -46,6 +54,7 @@ COPY src/main.py .
 COPY src/SA.py .
 COPY src/utility.py .
 COPY src/monitoring_input.py .
+COPY src/k3s_client_input.py .
 COPY src/pipeline_demo_sa.py .
 
 # Create config directory
