@@ -16,10 +16,9 @@ name (the same identifiers the lib's action methods — create_pod, delete_pod,
 scale_to, migrate_pod — take as input, so Optimiser actions can refer to them
 directly).
 
-Requirements (both already in place for the Swarm Agent):
-- the kubectl binary in the image (the lib shells out to kubectl; in-cluster it
-  authenticates as the pod's ServiceAccount)
-- pods get/list RBAC (k3s/01-rbac-swarm-agent.yaml)
+The lib uses the kubernetes Python SDK with in-cluster auth (the pod's
+ServiceAccount); pods get/list RBAC is already granted
+(k3s/01-rbac-swarm-agent.yaml).
 """
 
 import logging
@@ -42,17 +41,49 @@ def _get_manager():
     return _manager
 
 
+def _fallback_mapping(label_selector: str = None) -> dict:
+    """
+    TEMPORARY workaround for a k3s-client 0.3.0 bug (reported to its team):
+    Kubectl.get() passes the dynamic-client response to
+    sanitize_for_serialization(), which crashes with kubernetes==35.0.0
+    ("'NoneType' object has no attribute 'items'"). Until the lib is fixed,
+    build the mapping directly from the kubernetes SDK with the SAME output
+    shape, the SAME msid rule (service label -> app label -> pod name) and the
+    SAME namespace scope ("default") as the lib, so nothing downstream changes.
+    """
+    from kubernetes import client, config
+    try:
+        config.load_incluster_config()
+    except Exception:
+        config.load_kube_config()
+    v1 = client.CoreV1Api()
+    pods = v1.list_namespaced_pod("default", label_selector=label_selector).items
+    grouped = {}
+    for pod in pods:
+        labels = pod.metadata.labels or {}
+        msid = labels.get("service") or labels.get("app") or pod.metadata.name
+        grouped.setdefault(msid, {})[pod.metadata.name] = pod.spec.node_name
+    return grouped
+
+
 def get_cluster_status(label_selector: str = None) -> dict:
     """
     Current pod->node mapping grouped by microservice, from the k3s-client lib.
 
     Args:
-        label_selector: optional kubectl label selector (e.g. "app=stressng")
+        label_selector: optional label selector (e.g. "app=stressng")
             to restrict which pods are included; None = all.
 
     Returns {"<msid>": {"<pod>": "<node>"}} — {} if nothing matches.
     """
-    mapping = _get_manager().get_pod_node_mapping(label_selector=label_selector) or {}
+    try:
+        mapping = _get_manager().get_pod_node_mapping(label_selector=label_selector) or {}
+    except Exception as e:
+        logger.warning(
+            f"k3s-client get_pod_node_mapping failed ({e}); using direct-API fallback "
+            f"(known 0.3.0 serialization bug)"
+        )
+        mapping = _fallback_mapping(label_selector)
     pods = sum(len(p) for p in mapping.values())
     logger.info(f"Cluster status: {len(mapping)} microservice(s), {pods} pod(s)")
     logger.debug(f"pod->node mapping: {mapping}")
