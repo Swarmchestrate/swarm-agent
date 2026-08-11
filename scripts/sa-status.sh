@@ -44,8 +44,6 @@ echo "$LOGS" | grep -E "WARNING|ERROR" | tail -5 || echo "none"
 
 echo ""
 echo "--- Known-issue check ---"
-N409=$(echo "$LOGS" | grep -c "AlreadyExists")
-echo "409 AlreadyExists count: $N409 (expect 0 since apply_manifest)"
 FB=$(echo "$LOGS" | grep -c "using direct-API fallback")
 echo "k3s-client mapping fallback used: $FB time(s) (goes to 0 once the lib fix is released)"
 echo "============================================================"
