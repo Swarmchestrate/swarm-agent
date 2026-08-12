@@ -19,9 +19,11 @@ spec:
         #image: zewang42/swarm-agent-7.0:standalone   <- upstream prebuilt image (no monitoring code inside)
         # locally built image incl. monitoring_input + SA monitoring loop
         # (docker build + k3s ctr images import on each node)
-        image: swarm-agent:metrics_collector
+        #image: swarm-agent:metrics_collector
        # image: ghcr.io/swarmchestrate/swarm-agent:dev
-        imagePullPolicy: IfNotPresent
+        # branch image published by CI on every push (Always: the tag moves with the branch)
+        image: ghcr.io/swarmchestrate/swarm-agent:optimizer-interfaces
+        imagePullPolicy: Always
         ports:
         - containerPort: 9090
         env:
