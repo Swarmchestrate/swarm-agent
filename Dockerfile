@@ -15,9 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgl1 \
     libegl1 \
+    libfontconfig1 \
+    libfreetype6 \
+    libgpg-error0 \
     && rm -rf /var/lib/apt/lists/*
-# libgl1/libegl1: runtime libs for the MiniZinc bundle's fzn-gecode solver
-# (built with graphics support; fails with "libGL.so.1 not found" without them)
+# libgl1..libgpg-error0: runtime libs for the MiniZinc bundle's fzn-gecode
+# solver (built with desktop/graphics support; the full missing set was
+# enumerated in-pod with: ldd /opt/minizinc/bin/fzn-gecode | grep "not found")
 
 # Install puccini (TOSCA library)
 RUN arch="$(dpkg --print-architecture)" \
