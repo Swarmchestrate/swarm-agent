@@ -16,7 +16,7 @@ PyYAML>=6.0
 #kubernetes>=24.0.0
 kubernetes==35.0.0
 websockets>=10.0
-k3s-client==0.3.0
+k3s-client==0.3.1
 
 # monitor client (Optimiser monitoring input)
 swchmonclient==0.2.1
