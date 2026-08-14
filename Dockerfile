@@ -13,7 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     git \
     build-essential \
+    libgl1 \
+    libegl1 \
     && rm -rf /var/lib/apt/lists/*
+# libgl1/libegl1: runtime libs for the MiniZinc bundle's fzn-gecode solver
+# (built with graphics support; fails with "libGL.so.1 not found" without them)
 
 # Install puccini (TOSCA library)
 RUN arch="$(dpkg --print-architecture)" \
