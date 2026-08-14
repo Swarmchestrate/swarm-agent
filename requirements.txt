@@ -21,3 +21,7 @@ k3s-client==0.3.1
 # monitor client (Optimiser monitoring input)
 swchmonclient==0.2.1
 
+# optimiser lib (MiniZinc-based reconfiguration decisions; needs the minizinc
+# binary + Gecode solver in the image - see Dockerfile)
+swchoptimiser==0.1.0
+
