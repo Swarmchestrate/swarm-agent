@@ -18,6 +18,14 @@ kubectl delete clusterrolebinding swarm-agent-binding --ignore-not-found
 
 echo "=== 2/3 Removing the application ($APP) ==="
 kubectl delete deployment "$APP" -n default --ignore-not-found
+# also remove any "<app>-pinned-<node>" deployments left behind by
+# create_pod/migrate_pod action testing (the lib pins a pod to a node by
+# creating a separate deployment)
+PINNED=$(kubectl get deploy -n default -o name 2>/dev/null | grep -- "-pinned-" || true)
+if [ -n "$PINNED" ]; then
+  echo "  removing pinned test deployments:"
+  echo "$PINNED" | xargs -r kubectl delete -n default --ignore-not-found
+fi
 
 echo "=== 3/3 Removing the monitoring stack ==="
 if kubectl get pod python-shell -n default >/dev/null 2>&1; then
