@@ -1,9 +1,5 @@
 # Demo: k3s-client integration & simulated optimiser actions
 
-A step-by-step walkthrough to run in front of colleagues. Everything runs on the
-control-plane node, from `~/swarm-agent/scripts`. Total time: about 15 minutes.
-
----
 
 ## Part 0 — Start from a clean cluster (2 min)
 
@@ -15,10 +11,10 @@ kubectl get pods -n default
 
 **Expect:** everything removed.
 
-Say: *"The cluster is empty — no application, no monitoring, no Swarm Agent.
-Only Kubernetes itself is running."*
+The cluster is empty — no application, no monitoring, no Swarm Agent.
+Only Kubernetes itself is running.
 
----
+
 
 ## Part 1 — One command deploys everything (3 min)
 
@@ -35,8 +31,7 @@ kubectl get pods -n default
 **Expect:** within ~1 minute the monitoring stack (EMS server, netdata, ems-clients)
 and the application (stressng) appear — deployed by the agent, not by us.
 
-Say: *"I deployed only the Swarm Agent. It read the SAT file and then deployed the
-monitoring system and the application on its own."*
+
 
 ---
 
@@ -56,13 +51,13 @@ Point at the "Startup" section:
 | `subscribed to 8 metric(s); polling every 60s` | monitoring client + Sardou (metric names from the SAT) |
 | `Cluster status: 5 microservice(s), 6 pod(s)` | **k3s-client (`get_pod_node_mapping`)** |
 
-Say: *"Every interaction with Kubernetes goes through the k3s-client library.
-The monitoring client handles metrics. The Swarm Agent coordinates both."*
+Every interaction with Kubernetes goes through the k3s-client library.
+The monitoring client handles metrics. The Swarm Agent coordinates both.
 
 Note: metrics need ~3 minutes to warm up after a fresh deploy. Early polls showing
 `missing: [...]` are normal — use that time for the Part 3 explanation.
 
----
+
 
 ## Part 3 — Simulated optimiser: issue actions by hand (5 min)
 
@@ -72,7 +67,8 @@ This is what the project asked for: exercise the k3s-client action methods
 Set the leader pod name first (needed by every command below):
 
 ```bash
-LEADER=$(kubectl get pods -n swarm-system -o name --field-selector spec.nodeName=$(hostname) | grep swarm-agent | sed "s|pod/||")
+LEADER_NODE=$(kubectl get nodes -o name | sed "s|node/||" | grep -x "$(hostname)" || kubectl get nodes -o name | sed "s|node/||" | head -1)
+LEADER=$(kubectl get pods -n swarm-system -o name --field-selector spec.nodeName=$LEADER_NODE | grep swarm-agent | sed "s|pod/||")
 echo $LEADER
 ```
 
@@ -98,8 +94,8 @@ kubectl logs -n swarm-system $LEADER | grep "Cluster status" | tail -2
 
 **Expect:** the pod count rises from 6 to 7 with nobody telling the agent.
 
-Say: *"Nothing told the Swarm Agent about that change. It reads the cluster state
-every cycle, so the optimiser will always see the current mapping."*
+Nothing told the Swarm Agent about that change. It reads the cluster state
+every cycle, so the optimiser will always see the current mapping.
 
 ### 3c. Scale back down
 
@@ -120,7 +116,7 @@ from k3s_client.api.applications import ApplicationManager
 print(ApplicationManager().delete_pod(msid='stressng-v1', podid='$PODID'))"
 ```
 
-**Expect:** the deployment count goes down by one (with one replica that means zero
+the deployment count goes down by one (with one replica that means zero
 — the library reduces the count by one, it does not wipe the application).
 
 Restore it:

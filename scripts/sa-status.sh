@@ -6,7 +6,18 @@
 #
 # Usage:  bash sa-status.sh            (run on the control-plane node)
 
-LEADER=$(kubectl get pods -n swarm-system -o name --field-selector spec.nodeName="$(hostname)" 2>/dev/null | grep swarm-agent | sed "s|pod/||")
+# Leader node: this machine's hostname when it is also a Kubernetes node name,
+# otherwise the only node of a single-node cluster (hostname != node name on
+# many setups, e.g. cloud instances).
+NODES=$(kubectl get nodes -o name 2>/dev/null | sed "s|node/||")
+if echo "$NODES" | grep -qx "$(hostname)"; then
+  LEADER_NODE="$(hostname)"
+elif [ -n "$NODES" ] && [ "$(echo "$NODES" | wc -l)" -eq 1 ]; then
+  LEADER_NODE="$NODES"
+else
+  LEADER_NODE="$(hostname)"
+fi
+LEADER=$(kubectl get pods -n swarm-system -o name --field-selector spec.nodeName="$LEADER_NODE" 2>/dev/null | grep swarm-agent | sed "s|pod/||")
 
 echo "==================== SWARM AGENT STATUS ===================="
 echo "Leader pod: ${LEADER:-NOT FOUND}"
