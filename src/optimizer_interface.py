@@ -40,6 +40,70 @@ class OptimizerInputs:
     cluster_status: dict               # {msid: {pod: node}} from the k3s-client lib
 
 
+def rule_required_inputs(rule: str, mslist: list = None) -> dict:
+    """
+    Ask the Optimiser which variables a reconfiguration rule refers to, by
+    handing it the rule text (swchoptimiser builds the MiniZinc model and
+    reports its parameters).
+
+    Returns {"system": [...], "app": [...], "outputs": [...]} where "app" is the
+    list the Swarm Agent has to fill: the rule's constants and metrics.
+
+    Raises RuntimeError if the Optimiser cannot load the rule (a bad rule is a
+    SAT authoring error worth surfacing, not something to hide).
+    """
+    from swch_optimiser import SwchOptimiser
+
+    opt = SwchOptimiser(rule, mslist=mslist or [])
+    err = opt.get_error()
+    if err:
+        raise RuntimeError(f"Optimiser could not load the rule: {err}")
+    return {
+        "system": sorted(opt.query_system_inputs().keys()),
+        "app": sorted(opt.query_appspec_inputs().keys()),
+        "outputs": sorted(opt.query_outputs().keys()),
+    }
+
+
+def check_rule_inputs(reconfiguration: dict, metric_names) -> dict:
+    """
+    Work out, per reconfiguration policy, where each application input its rule
+    needs comes from: a constant declared in the SAT, one of the metrics we
+    subscribe to, or nothing at all.
+
+    The Optimiser cannot start a calculation while a variable it refers to has
+    no value, so the "missing" list is the one to act on.
+
+    Args:
+        reconfiguration: a get_reconfiguration_details() result.
+        metric_names: the metric names the SAT declares (and we subscribe to).
+
+    Returns {"<policy>": {"sources": {"<var>": "constant"|"metric"},
+                          "missing": ["<var>", ...],
+                          "outputs": [...]}}
+    """
+    metrics = set(metric_names or [])
+    report = {}
+    for policy, body in (reconfiguration or {}).items():
+        rule = body.get("rule") or ""
+        constants = body.get("constants") or {}
+        needed = rule_required_inputs(rule, body.get("targets"))
+        sources, missing = {}, []
+        for name in needed["app"]:
+            if name in constants:
+                sources[name] = "constant"
+            elif name in metrics:
+                sources[name] = "metric"
+            else:
+                missing.append(name)
+        report[policy] = {
+            "sources": sources,
+            "missing": missing,
+            "outputs": needed["outputs"],
+        }
+    return report
+
+
 def get_predicted_values() -> Optional[dict]:
     """
     AI component input. Status: PENDING — the AI agent is still being built.

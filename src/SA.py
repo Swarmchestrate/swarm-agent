@@ -120,6 +120,8 @@ class SwarmAgent:
         self.latest_cluster_status = None
         # Reconfiguration rule + constants declared in the SAT (Sardou)
         self.latest_reconfiguration = {}
+        # Which rule variables we can fill, and which are still missing
+        self.rule_input_report = {}
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -290,6 +292,36 @@ class SwarmAgent:
                                     f"[MonitoringLoop] reconfiguration '{policy}': "
                                     f"rule {len(rule)} char(s), {len(consts)} constant(s) "
                                     f"{sorted(consts)}; targets {body.get('targets', [])}"
+                                )
+
+                            # Ask the Optimiser which variables the rule refers to,
+                            # and check we can fill every one of them: the Optimiser
+                            # cannot calculate while a variable has no value.
+                            try:
+                                from optimizer_interface import check_rule_inputs
+
+                                self.rule_input_report = check_rule_inputs(
+                                    self.latest_reconfiguration, cached_names
+                                )
+                                for policy, rep in self.rule_input_report.items():
+                                    filled = ", ".join(
+                                        f"{n}={src}" for n, src in sorted(rep["sources"].items())
+                                    ) or "none"
+                                    missing = rep["missing"]
+                                    self.logger.info(
+                                        f"[MonitoringLoop] rule '{policy}' needs "
+                                        f"{len(rep['sources']) + len(missing)} input(s): {filled}"
+                                    )
+                                    if missing:
+                                        self.logger.warning(
+                                            f"[MonitoringLoop] rule '{policy}' has unfilled "
+                                            f"variable(s): {missing} - the Optimiser cannot run "
+                                            f"until these have values"
+                                        )
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"[MonitoringLoop] could not query the Optimiser for the "
+                                    f"rule's variables: {e}"
                                 )
                         else:
                             self.logger.info(

@@ -47,7 +47,11 @@ python3 generate-configMaps.py --job-id "$JOB_ID" --tosca-path "$TOSCA" --hub-ra
 echo "=== 2/3 Applying manifests ==="
 kubectl apply -f "$OUT/"
 
-echo "=== 3/3 Waiting for the SA to roll out ==="
+# Restart even when the manifests are unchanged: the image tag is mutable
+# (CI republishes :optimizer-interfaces) and the SAT is read at startup, so
+# without this a new image or a changed SAT would not be picked up.
+echo "=== 3/3 Restarting the SA and waiting for it to roll out ==="
+kubectl rollout restart daemonset/swarm-agent -n swarm-system
 kubectl rollout status daemonset/swarm-agent -n swarm-system
 
 echo ""

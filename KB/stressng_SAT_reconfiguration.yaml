@@ -140,7 +140,7 @@ service_template:
           threshold_min_node_load: "40.0"
           threshold_max_node_load: "70.0"
         rule: |
-          % --- system parameters required by every rule ---
+          % --- system parameters: required by every rule ---
           int: sys_pod_count_max;
           int: sys_node_count_max;
           int: sys_node_count_actual;
@@ -149,16 +149,28 @@ service_template:
           array[1..sys_pod_count_max] of var 0..sys_node_count_max: sys_mapping_next :: add_to_output;
           var 0..sys_pod_count_max: sys_pod_count_next =
             sum(p in 1..sys_pod_count_max)(sys_mapping_next[p] > 0);
+          int: sys_pod_count_actual =
+            sum(p in 1..sys_pod_count_max)(sys_mapping_actual[p] > 0);
 
-          % --- application constants (declared above) ---
+          % --- application constants (from the SAT) ---
           float: threshold_min_node_load;
           float: threshold_max_node_load;
 
-          % keep the node count fixed; keep at least one pod running
+          % --- application metrics (from the monitoring stack) ---
+          float: cpu_util_prct;
+
+          % node count stays as it is; never scale below one pod
           constraint sys_node_count_next = sys_node_count_actual;
           constraint sys_pod_count_next >= 1;
 
-          % prefer the smallest change to the current mapping
+          % add a pod when CPU is above the upper threshold,
+          % remove one when it is below the lower threshold
+          constraint cpu_util_prct > threshold_max_node_load ->
+            sys_pod_count_next > sys_pod_count_actual;
+          constraint cpu_util_prct < threshold_min_node_load ->
+            sys_pod_count_next < sys_pod_count_actual \/ sys_pod_count_actual = 1;
+
+          % among valid answers, prefer the smallest change
           var int: loss = 100 * sum(p in 1..sys_pod_count_max)
             (bool2int(sys_mapping_next[p] != sys_mapping_actual[p]));
           solve minimize loss;
