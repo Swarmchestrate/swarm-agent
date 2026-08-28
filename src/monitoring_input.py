@@ -59,6 +59,46 @@ def get_monitoring_details(tosca_path: str) -> dict:
     raise last_err
 
 
+def get_reconfiguration_details(tosca_path: str) -> dict:
+    """
+    Reconfiguration policies declared in the SAT, via the Sardou lib's
+    get_reconfiguration(). Each policy carries the Optimiser's rule and its
+    constants:
+
+        {"<policy>": {"rule": "<minizinc text>",
+                      "constants": {"<name>": "<value>"},
+                      "targets": ["<microservice>"]}}
+
+    Returns {} when the SAT declares no reconfiguration policy. Same transient
+    retry as get_monitoring_details (concurrent Sardou runs can race on the
+    profile cache).
+    """
+    from sardou import Sardou
+    last_err = RuntimeError(f"Sardou failed for '{tosca_path}'")
+    for attempt in range(1, 4):
+        try:
+            return Sardou(tosca_path).get_reconfiguration() or {}
+        except Exception as e:
+            last_err = e
+            if attempt < 3:
+                logger.warning(
+                    f"Sardou reconfiguration attempt {attempt}/3 failed for "
+                    f"'{tosca_path}': {e}; retrying"
+                )
+                time.sleep(2)
+    raise last_err
+
+
+def microservice_names_from_details(details: dict) -> set:
+    """
+    Application microservice names declared in the SAT (the keys of a
+    get_monitoring() result). Used to keep only application microservices in
+    the cluster-status mapping - the monitoring stack's own pods are
+    infrastructure and are not orchestrated by the Optimiser.
+    """
+    return set(details.keys())
+
+
 def metric_names_from_details(details: dict) -> list:
     """Metric names (raw + composite) from an already-fetched get_monitoring() result."""
     names = []

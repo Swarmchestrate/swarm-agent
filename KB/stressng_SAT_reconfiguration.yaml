@@ -1,0 +1,165 @@
+tosca_definitions_version: tosca_2_0
+description: stress-ng workload as a Swarmchestrate SAT - monitoring metrics plus a
+  Reconfiguration policy (rule + constants) for the Optimiser; variant with monitoring-team
+  supported metrics (testing; original KB SAT metrics are not EMS-provisioned)
+metadata:
+  name: stressng
+  author: you
+  date: '2026-05-05'
+  version: 1.0
+  tags:
+  - stressng
+imports:
+- namespace: swch
+  url: https://raw.githubusercontent.com/Swarmchestrate/tosca/refs/heads/main/profiles/eu.swarmchestrate/profile.yaml
+service_template:
+  node_templates:
+    swarm:
+      type: swch:Swarm
+      directives:
+      - substitute
+    stressng:
+      type: swch:Microservice
+      properties:
+        image: docker.io/gunjank05/stress-ng
+        replicas: 1
+        labels:
+          app: stressng
+          service: stressng
+        command:
+        - stress-ng
+        args:
+        - --cpu
+        - '1'
+        - --vm
+        - '1'
+        - --vm-bytes
+        - 256M
+        - --timeout
+        - 3600s
+        - --metrics-brief
+        ports: []
+      capabilities:
+        metrics:
+          properties:
+            raw:
+            - name: cpu_idle_instance
+              sensor: netdata
+              config:
+                scope_contexts: system.cpu
+                dimensions: idle
+              collection_frequency: 30 sec
+              collection_output: all
+            - name: ram_free_instance
+              sensor: netdata
+              config:
+                scope_contexts: system.ram
+                dimensions: free
+              collection_frequency: 30 sec
+              collection_output: all
+            - name: ram_total_instance
+              sensor: netdata
+              config:
+                scope_contexts: system.ram
+                results-aggregation: SUM
+              collection_frequency: 30 sec
+              collection_output: all
+            - name: disk_read_activity
+              sensor: netdata
+              config:
+                scope_contexts: system.io
+                dimensions: reads
+              collection_frequency: 10 sec
+              collection_output: all
+            - name: disk_write_activity
+              sensor: netdata
+              config:
+                scope_contexts: system.io
+                dimensions: writes
+              collection_frequency: 10 sec
+              collection_output: all
+            composite:
+            - name: cpu_util_prct
+              formula: 100 - mean(cpu_idle_instance)
+              collection_frequency: 30 sec
+              collection_output: all
+              window_type: sliding
+              window_size: 5 min
+              grouping: global
+            - name: ram_util_prct
+              formula: (mean(ram_total_instance)-mean(ram_free_instance))/mean(ram_total_instance)
+              collection_frequency: 30 sec
+              collection_output: all
+              window_type: sliding
+              window_size: 5 min
+              grouping: global
+            - name: avg_disk_utilization
+              formula: abs(mean(disk_read_activity))+abs(mean(disk_write_activity))
+              collection_frequency: 10 sec
+              collection_output: all
+              window_type: sliding
+              window_size: 5 min
+              grouping: global
+        slo-constraints:
+          properties:
+            name: cpu_utilization
+            metric: cpu_util_prct
+            operator: '>'
+            threshold: 80.0
+      requirements:
+      - host:
+          count: 1
+          node_filter:
+            $and:
+            - $greater_or_equal:
+              - $get_property:
+                - SELF
+                - TARGET
+                - CAPABILITY
+                - host
+                - num-cpus
+              - 1
+            - $greater_or_equal:
+              - $get_property:
+                - SELF
+                - TARGET
+                - CAPABILITY
+                - host
+                - mem-size
+              - 2
+  policies:
+  - stressng_colocation:
+      type: swch:Scheduling.Colocation
+      targets: []
+  # Reconfiguration policy: the Optimiser's rule and the constants it refers to.
+  # Extracted by the Swarm Agent with the Sardou lib (get_reconfiguration).
+  - stressng_reconfiguration:
+      type: swch:Reconfiguration
+      properties:
+        constants:
+          threshold_min_node_load: "40.0"
+          threshold_max_node_load: "70.0"
+        rule: |
+          % --- system parameters required by every rule ---
+          int: sys_pod_count_max;
+          int: sys_node_count_max;
+          int: sys_node_count_actual;
+          array[1..sys_pod_count_max] of int: sys_mapping_actual;
+          var 1..sys_node_count_max: sys_node_count_next :: add_to_output;
+          array[1..sys_pod_count_max] of var 0..sys_node_count_max: sys_mapping_next :: add_to_output;
+          var 0..sys_pod_count_max: sys_pod_count_next =
+            sum(p in 1..sys_pod_count_max)(sys_mapping_next[p] > 0);
+
+          % --- application constants (declared above) ---
+          float: threshold_min_node_load;
+          float: threshold_max_node_load;
+
+          % keep the node count fixed; keep at least one pod running
+          constraint sys_node_count_next = sys_node_count_actual;
+          constraint sys_pod_count_next >= 1;
+
+          % prefer the smallest change to the current mapping
+          var int: loss = 100 * sum(p in 1..sys_pod_count_max)
+            (bool2int(sys_mapping_next[p] != sys_mapping_actual[p]));
+          solve minimize loss;
+      targets: [ stressng ]

@@ -118,6 +118,8 @@ class SwarmAgent:
         self.latest_slo_violations = []
         # Latest pod->node mapping from the k3s-client lib (Optimiser input 3)
         self.latest_cluster_status = None
+        # Reconfiguration rule + constants declared in the SAT (Sardou)
+        self.latest_reconfiguration = {}
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -231,6 +233,8 @@ class SwarmAgent:
         import time
         from monitoring_input import (
             get_monitoring_details,
+            get_reconfiguration_details,
+            microservice_names_from_details,
             metric_names_from_details,
             poll_interval_from_details,
             subscribe_metrics,
@@ -244,6 +248,7 @@ class SwarmAgent:
             # names + slo details (also avoids concurrent Sardou cache races).
             cached_names = None
             cached_details = None
+            cached_microservices = None
             subscribed = False
             
             poll_seconds = interval_seconds
@@ -262,8 +267,34 @@ class SwarmAgent:
                         poll_seconds = poll_interval_from_details(
                             cached_details, floor_seconds=interval_seconds
                         )
+                        cached_microservices = microservice_names_from_details(cached_details)
                         self.logger.info(f"[MonitoringLoop] metrics from SAT: {cached_names}")
                         self.logger.info(f"[MonitoringLoop] poll interval {poll_seconds}s")
+                        self.logger.info(
+                            f"[MonitoringLoop] application microservice(s) from SAT: "
+                            f"{sorted(cached_microservices)}"
+                        )
+
+                        # Optimiser inputs from the SAT: the reconfiguration rule
+                        # and its constants (Sardou get_reconfiguration).
+                        try:
+                            self.latest_reconfiguration = get_reconfiguration_details(self.tosca_path)
+                        except Exception as e:
+                            self.logger.warning(f"[MonitoringLoop] reconfiguration unavailable: {e}")
+                            self.latest_reconfiguration = {}
+                        if self.latest_reconfiguration:
+                            for policy, body in self.latest_reconfiguration.items():
+                                rule = body.get("rule") or ""
+                                consts = body.get("constants") or {}
+                                self.logger.info(
+                                    f"[MonitoringLoop] reconfiguration '{policy}': "
+                                    f"rule {len(rule)} char(s), {len(consts)} constant(s) "
+                                    f"{sorted(consts)}; targets {body.get('targets', [])}"
+                                )
+                        else:
+                            self.logger.info(
+                                "[MonitoringLoop] SAT declares no reconfiguration policy"
+                            )
 
                     if not subscribed:
                         subscribe_metrics(cached_names)
@@ -283,7 +314,9 @@ class SwarmAgent:
                     # Optimiser input 3: refresh the pod->node mapping (k3s-client
                     # lib). Best-effort — cluster status must never break monitoring.
                     try:
-                        self.latest_cluster_status = get_cluster_status()
+                        self.latest_cluster_status = get_cluster_status(
+                            microservices=cached_microservices
+                        )
                     except Exception as e:
                         self.logger.warning(f"[MonitoringLoop] cluster status unavailable: {e}")
 
@@ -482,7 +515,6 @@ class SwarmAgent:
         #self.logger.info(f"Loading TOSCA for resource {self.resource_id}")
 
         try:
-            # Load in-cluster config (uses ServiceAccount mounted in pod)
             config.load_incluster_config()
             k8s_client = ApiClient()
             v1 = client.CoreV1Api(k8s_client)
@@ -500,7 +532,6 @@ class SwarmAgent:
 
                 self.logger.info(f"Applying {fpath}")
                 # Prefer the k3s-client lib: apply_manifest is create-or-patch,
-                # so re-deploys update in place instead of failing with 409
                 # AlreadyExists. Falls back to the direct apply below if the
                 # lib call fails for any reason.
                 try:
