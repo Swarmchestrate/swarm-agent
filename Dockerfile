@@ -71,6 +71,7 @@ COPY src/SA.py .
 COPY src/utility.py .
 COPY src/monitoring_input.py .
 COPY src/k3s_client_input.py .
+COPY src/optimizer_interface.py .
 COPY src/pipeline_demo_sa.py .
 
 # Create config directory
