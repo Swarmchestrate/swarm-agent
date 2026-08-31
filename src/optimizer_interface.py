@@ -161,6 +161,159 @@ def build_rule_inputs(reconfiguration: dict, rule_report: dict, monitoring_data:
     return bundle
 
 
+def to_system_input(
+    cluster_status: dict,
+    node_names: list,
+    pod_count_max: int = None,
+    node_count_max: int = None,
+    headroom: int = 4,
+) -> tuple:
+    """
+    Convert the pod->node mapping into the numeric system input the Optimiser
+    takes, and return the index needed to read its answer back.
+
+    Ours (names):        {"stressng": {"stressng-v1-abc": "node-a"}}
+    The Optimiser's:     {"sys_pod_count_max": 5, "sys_node_count_max": 2,
+                          "sys_node_count_actual": 2,
+                          "sys_mapping_actual": [1, 0, 0, 0, 0]}
+
+    Nodes become numbers by their position in `node_names` (1-based), pods take
+    a slot in the mapping array, and 0 means "no pod in this slot". With more
+    than one microservice the Optimiser expects one array each, suffixed with
+    the microservice name (sys_mapping_actual_<ms>), which is the convention its
+    generate_actions() reads back.
+
+    Both orderings are sorted by name so the same cluster always produces the
+    same numbering - the Optimiser's answer is meaningless if the indices move
+    between cycles.
+
+    Args:
+        cluster_status: {msid: {pod: node}}, already filtered to the application.
+        node_names: every node in the cluster, sorted (see get_node_names).
+        pod_count_max: array length. Defaults to the current pod count plus
+            `headroom`, since the Optimiser can only add pods into free slots.
+        node_count_max: defaults to the number of nodes - the Swarm Agent cannot
+            create nodes, so it does not offer the Optimiser more than exist.
+        headroom: spare slots when pod_count_max is not given.
+
+    Returns (system, index) where index is
+        {"nodes": [...], "slots": {msid: [pod-or-None, ...]},
+         "deployments": {msid: deployment-name}}
+    """
+    nodes = list(node_names)
+    node_number = {name: i + 1 for i, name in enumerate(nodes)}
+
+    pods_total = sum(len(p) for p in cluster_status.values())
+    slots_per_ms = pod_count_max or (pods_total + headroom)
+
+    system = {
+        "sys_pod_count_max": slots_per_ms,
+        "sys_node_count_max": node_count_max or len(nodes),
+        "sys_node_count_actual": len(nodes),
+    }
+    index = {"nodes": nodes, "slots": {}, "deployments": {}}
+
+    multi = len(cluster_status) > 1
+    for msid in sorted(cluster_status):
+        pods = cluster_status[msid]
+        ordered = sorted(pods)
+        mapping, slots = [], []
+        for pod in ordered[:slots_per_ms]:
+            mapping.append(node_number.get(pods[pod], 0))
+            slots.append(pod)
+        while len(mapping) < slots_per_ms:      # free slots the Optimiser may fill
+            mapping.append(0)
+            slots.append(None)
+
+        key = f"sys_mapping_actual_{msid}" if multi else "sys_mapping_actual"
+        system[key] = mapping
+        index["slots"][msid] = slots
+        index["deployments"][msid] = deployment_name_of(ordered[0]) if ordered else msid
+
+    return system, index
+
+
+def deployment_name_of(pod_name: str) -> str:
+    """
+    Deployment a pod belongs to, from its name.
+
+    Kubernetes names a Deployment's pods "<deployment>-<replicaset>-<random>",
+    so dropping the last two parts gives the Deployment. This matters because
+    the k3s-client action methods take the deployment name ("stressng-v1")
+    while the mapping is keyed by the microservice label ("stressng").
+    """
+    parts = pod_name.rsplit("-", 2)
+    return parts[0] if len(parts) == 3 else pod_name
+
+
+def actions_to_k3s_calls(actions: list, index: dict) -> list:
+    """
+    Translate the Optimiser's actions back into k3s-client calls.
+
+    The Optimiser answers in numbers - "create_ms name=stressng pod=3 node=2" -
+    which the index turns back into the names the k3s-client needs.
+
+    Node-level actions are reported but not translated: creating or destroying a
+    node is the Resource Agent's job, not something the Swarm Agent can do.
+
+    Returns one record per action:
+        {"action": ..., "method": "scale_to"|"create_pod"|"delete_pod"|None,
+         "kwargs": {...}, "description": "...", "supported": bool}
+    """
+    nodes = index.get("nodes", [])
+    slots = index.get("slots", {})
+    deployments = index.get("deployments", {})
+    calls = []
+
+    for act in actions or []:
+        kind = act.get("action")
+        msid = act.get("name")
+        deployment = deployments.get(msid, msid)
+
+        if kind == "create_ms":
+            node_no = act.get("node", 0)
+            node = nodes[node_no - 1] if 0 < node_no <= len(nodes) else None
+            calls.append({
+                "action": kind,
+                "method": "create_pod",
+                "kwargs": {"msid": deployment, "nodeid": node},
+                "description": f"add a pod of '{msid}' on node '{node}'",
+                "supported": node is not None,
+            })
+
+        elif kind == "destroy_ms":
+            slot = act.get("pod", 0) - 1
+            ms_slots = slots.get(msid, [])
+            pod = ms_slots[slot] if 0 <= slot < len(ms_slots) else None
+            calls.append({
+                "action": kind,
+                "method": "delete_pod",
+                "kwargs": {"msid": deployment, "podid": pod},
+                "description": f"remove pod '{pod}' of '{msid}'",
+                "supported": pod is not None,
+            })
+
+        elif kind in ("create_node", "destroy_node"):
+            calls.append({
+                "action": kind,
+                "method": None,
+                "kwargs": {"nodeid": act.get("nodeid")},
+                "description": f"{kind} is a resource-level action (Resource Agent)",
+                "supported": False,
+            })
+
+        else:
+            calls.append({
+                "action": kind,
+                "method": None,
+                "kwargs": {},
+                "description": f"unknown action '{kind}'",
+                "supported": False,
+            })
+
+    return calls
+
+
 def get_predicted_values() -> Optional[dict]:
     """
     AI component input. Status: PENDING — the AI agent is still being built.

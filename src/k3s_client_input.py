@@ -36,6 +36,22 @@ def _fallback_mapping(label_selector: str = None) -> dict:
     return grouped
 
 
+def get_node_names() -> list:
+    """
+    Every node in the cluster, sorted by name.
+
+    The pod->node mapping only names nodes that currently host a pod, but the
+    Optimiser needs the full set: a node with nothing on it is still somewhere a
+    pod can be placed.
+    """
+    from kubernetes import client, config
+    try:
+        config.load_incluster_config()
+    except Exception:
+        config.load_kube_config()
+    return sorted(n.metadata.name for n in client.CoreV1Api().list_node().items)
+
+
 def get_cluster_status(label_selector: str = None, microservices: set = None) -> dict:
     """
     Current pod->node mapping grouped by microservice, from the k3s-client lib.
