@@ -124,6 +124,8 @@ class SwarmAgent:
         self.rule_input_report = {}
         # Per cycle: the subset of metric values + constants each rule needs
         self.latest_rule_inputs = {}
+        # Per cycle: what the Optimiser decided, translated to k3s-client calls
+        self.latest_decision = {}
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -222,6 +224,69 @@ class SwarmAgent:
             self.logger.error(
                 f"[MonitoringDeploy] failed: {e}; continuing — monitoring loop will retry once the broker is up"
             )
+
+    def _run_optimiser(self, mode: str = "shadow"):
+        """
+        One decision cycle: hand the Optimiser this cycle's inputs and log what
+        it wants done, translated back into k3s-client calls.
+
+        In "shadow" mode nothing is executed - the decision is logged only. That
+        keeps the loop safe to run while the rule content is still being agreed;
+        an "auto" mode that carries the calls out is the next step.
+        """
+        from optimizer_interface import to_system_input, actions_to_k3s_calls
+        from k3s_client_input import get_node_names
+        from swch_optimiser import SwchOptimiser
+
+        mapping = self.latest_cluster_status or {}
+        if not mapping:
+            return
+        system, index = to_system_input(mapping, get_node_names())
+
+        for policy, inputs in self.latest_rule_inputs.items():
+            if not inputs["ready"]:
+                continue                      # already warned about by the caller
+            body = (self.latest_reconfiguration.get(policy) or {})
+
+            opt = SwchOptimiser(body.get("rule", ""), mslist=sorted(mapping))
+            if opt.get_error():
+                self.logger.warning(
+                    f"[Optimiser] rule '{policy}' could not be loaded: {opt.get_error()}"
+                )
+                continue
+
+            opt.add_input_system(system)
+            opt.add_input_constants(inputs["constants"])
+            opt.add_input_metrics(inputs["metrics"])
+            opt.validate_inputs()
+            result = opt.solve(time_limit_milliseconds=10000)
+
+            shown = ", ".join(f"{n}={v:.2f}" for n, v in sorted(inputs["metrics"].items()))
+            if result is None or result.solution is None:
+                self.logger.warning(
+                    f"[Optimiser] rule '{policy}': no solution ({shown}) - "
+                    f"the rule cannot be satisfied with the current mapping"
+                )
+                continue
+
+            calls = actions_to_k3s_calls(opt.generate_actions(), index)
+            self.latest_decision[policy] = calls
+            if not calls:
+                self.logger.info(
+                    f"[Optimiser] rule '{policy}': no change needed ({shown}, "
+                    f"solved in {opt.time_taken()} ms)"
+                )
+                continue
+
+            for c in calls:
+                target = f"{c['method']}({c['kwargs']})" if c["method"] else c["description"]
+                if mode == "shadow":
+                    self.logger.info(
+                        f"[Optimiser] rule '{policy}' decided: {target} "
+                        f"({shown}) - NOT executed, shadow mode"
+                    )
+                else:
+                    self.logger.info(f"[Optimiser] rule '{policy}' decided: {target} ({shown})")
 
     def _start_monitoring_loop(self, interval_seconds: int = 60):
         """
@@ -383,6 +448,16 @@ class SwarmAgent:
                             self.logger.warning(
                                 f"[MonitoringLoop] could not build the rule inputs: {e}"
                             )
+
+                    # Ask the Optimiser what to do with this cycle's inputs.
+                    # SA_RECONF_MODE: "shadow" (default) decides and logs but
+                    # changes nothing; "off" skips it entirely.
+                    mode = os.getenv("SA_RECONF_MODE", "shadow").strip().lower()
+                    if mode != "off" and self.latest_rule_inputs:
+                        try:
+                            self._run_optimiser(mode)
+                        except Exception as e:
+                            self.logger.warning(f"[Optimiser] cycle skipped: {e}")
 
                     total = sum(len(v) for v in snapshot.values())
                     missing = [m for m in cached_names if not snapshot.get(m)]
