@@ -42,6 +42,10 @@ echo "--- Startup: what did the leader do? ---"
 echo "$LOGS" | grep -E "MonitoringDeploy|AppDeploy|Applying |Application initialised|poll interval|subscribed to" | head -8
 
 echo ""
+echo "--- Optimiser inputs read from the SAT ---"
+echo "$LOGS" | grep -E "microservice\(s\) from SAT|reconfiguration |rule '|unfilled variable" | head -6   || echo "none (the SAT declares no reconfiguration policy)"
+
+echo ""
 echo "--- Last 3 poll results (monitoring + SLO) ---"
 echo "$LOGS" | grep "poll done" | tail -3
 
