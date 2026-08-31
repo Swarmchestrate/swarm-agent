@@ -122,6 +122,8 @@ class SwarmAgent:
         self.latest_reconfiguration = {}
         # Which rule variables we can fill, and which are still missing
         self.rule_input_report = {}
+        # Per cycle: the subset of metric values + constants each rule needs
+        self.latest_rule_inputs = {}
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -351,6 +353,36 @@ class SwarmAgent:
                         )
                     except Exception as e:
                         self.logger.warning(f"[MonitoringLoop] cluster status unavailable: {e}")
+
+                    # Optimiser inputs for this cycle: the subset of metrics each
+                    # rule refers to, plus its constants, ready to hand over.
+                    if self.rule_input_report:
+                        try:
+                            from optimizer_interface import build_rule_inputs
+
+                            self.latest_rule_inputs = build_rule_inputs(
+                                self.latest_reconfiguration, self.rule_input_report, envelope
+                            )
+                            for policy, inputs in self.latest_rule_inputs.items():
+                                if inputs["ready"]:
+                                    shown = ", ".join(
+                                        f"{n}={v:.2f}" if isinstance(v, float) else f"{n}={v}"
+                                        for n, v in sorted(
+                                            {**inputs["metrics"], **inputs["constants"]}.items()
+                                        )
+                                    )
+                                    self.logger.info(
+                                        f"[MonitoringLoop] rule '{policy}' inputs ready: {shown}"
+                                    )
+                                else:
+                                    self.logger.warning(
+                                        f"[MonitoringLoop] rule '{policy}' not ready: no value "
+                                        f"this cycle for {inputs['unavailable']}"
+                                    )
+                        except Exception as e:
+                            self.logger.warning(
+                                f"[MonitoringLoop] could not build the rule inputs: {e}"
+                            )
 
                     total = sum(len(v) for v in snapshot.values())
                     missing = [m for m in cached_names if not snapshot.get(m)]

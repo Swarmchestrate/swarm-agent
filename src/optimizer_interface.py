@@ -104,6 +104,63 @@ def check_rule_inputs(reconfiguration: dict, metric_names) -> dict:
     return report
 
 
+def build_rule_inputs(reconfiguration: dict, rule_report: dict, monitoring_data: dict) -> dict:
+    """
+    Build the application inputs a reconfiguration rule needs for one cycle:
+    the subset of the collected metrics the rule actually refers to, plus its
+    constants, in the shape the Optimiser takes them
+    (add_input_metrics / add_input_constants).
+
+    A poll returns a list of values per metric (whatever arrived in that window),
+    while a rule variable is a single number, so the values are averaged - the
+    same reduction evaluate_slo() already applies to SLO checks.
+
+    Constants come back from the SAT as strings ("80"), so they are converted to
+    numbers here; anything non-numeric is passed through untouched.
+
+    A metric can be subscribed and still have no value in a given cycle. Those
+    are listed under "unavailable" and "ready" is False: the Optimiser cannot
+    calculate while one of its variables has no value.
+
+    Returns {"<policy>": {"metrics": {...}, "constants": {...},
+                          "unavailable": [...], "ready": bool}}
+    """
+    values = (monitoring_data or {}).get("metrics", {})
+
+    def as_number(raw):
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return raw
+
+    bundle = {}
+    for policy, report in (rule_report or {}).items():
+        declared = (reconfiguration.get(policy) or {}).get("constants") or {}
+        metrics, constants, unavailable = {}, {}, []
+
+        for name, source in report.get("sources", {}).items():
+            if source == "constant":
+                constants[name] = as_number(declared.get(name))
+                continue
+            samples = values.get(name) or []
+            if samples:
+                metrics[name] = sum(samples) / len(samples)
+            else:
+                unavailable.append(name)
+
+        # variables nothing can fill at all (reported once at startup) also
+        # block the Optimiser, so they count as unavailable every cycle
+        unavailable.extend(report.get("missing", []))
+
+        bundle[policy] = {
+            "metrics": metrics,
+            "constants": constants,
+            "unavailable": sorted(unavailable),
+            "ready": not unavailable,
+        }
+    return bundle
+
+
 def get_predicted_values() -> Optional[dict]:
     """
     AI component input. Status: PENDING — the AI agent is still being built.
