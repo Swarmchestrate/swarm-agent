@@ -49,7 +49,7 @@ agent to follow until it has been deployed.
 
 ---
 
-## Before the audience arrives (10 minutes)
+## Preparation (10 minutes)
 
 Do this early. A first start takes a few minutes to produce metric values, and
 the audience should not be watching a blank screen.
