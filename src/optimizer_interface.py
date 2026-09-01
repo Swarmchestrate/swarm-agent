@@ -287,6 +287,13 @@ def to_system_input(
         index["slots"][msid] = slots
         index["deployments"][msid] = deployment_name_of(ordered[0]) if ordered else msid
 
+    if multi:
+        # Every rule declares the plain sys_mapping_actual in the system block it
+        # must carry, so the Optimiser needs a value for it even when the rule
+        # tracks a mapping per microservice instead. An empty array satisfies it
+        # without claiming any pod placement of its own.
+        system.setdefault("sys_mapping_actual", [0] * slots_per_ms)
+
     return system, index
 
 
