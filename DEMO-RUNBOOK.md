@@ -15,11 +15,11 @@ code change, no redeploy by hand.
 
 Fill in three values for the cluster being demonstrated:
 
-| Placeholder | Meaning | Example |
-| --------------- | ------------------------------------------------- | -------------------------- |
-| `<key>` | SSH private key for the cluster | `~/.ssh/cluster_key.pem` |
-| `<user>@<host>` | Login on the control-plane node | `ubuntu@192.0.2.10` |
-| `<repo>` | Where this repository is checked out on that node | `/home/ubuntu/swarm-agent` |
+| Placeholder       | Meaning                                           | Example                      |
+| ----------------- | ------------------------------------------------- | ---------------------------- |
+| `<key>`         | SSH private key for the cluster                   | `~/.ssh/cluster_key.pem`   |
+| `<user>@<host>` | Login on the control-plane node                   | `ubuntu@192.0.2.10`        |
+| `<repo>`        | Where this repository is checked out on that node | `/home/ubuntu/swarm-agent` |
 
 Every log sample below is example output. Node names, pod-name suffixes and
 metric values differ on any other cluster - `swarm-node-1` stands for the
@@ -35,11 +35,11 @@ Three terminals, all logged in to the control-plane node:
 ssh -i <key> <user>@<host>
 ```
 
-| Terminal | Name it | What it shows |
-| -------- | ----------- | -------------------------------------------------------------- |
-| **1** | The story | The leader's log, filtered. This is the terminal people watch. |
+| Terminal    | Name it     | What it shows                                                    |
+| ----------- | ----------- | ---------------------------------------------------------------- |
+| **1** | The story   | The leader's log, filtered. This is the terminal people watch.   |
 | **2** | The cluster | `kubectl get pods`, refreshing. Proof the log matches reality. |
-| **3** | The driver | Where the presenter types. Quiet most of the time. |
+| **3** | The driver  | Where the presenter types. Quiet most of the time.               |
 
 Terminal 1 should be the largest. It carries the whole demo.
 
@@ -61,10 +61,9 @@ watch -n 5 kubectl get pods -n default
 
 ---
 
-## Before the audience arrives (10 minutes)
+## Do this early. A first start takes a few minutes to produce metric values, and
 
-Do this early. A first start takes a few minutes to produce metric values, and
-the audience should not be watching a blank screen.
+-------------------------------------------
 
 ```bash
 cd <repo>/scripts
@@ -87,6 +86,36 @@ grep threshold_max_node_load ../KB/stressng_SAT_reconfiguration.yaml | head -1
 
 If it reads 50, set it back to 70 - the demo starts from "everything is fine".
 
+### The first three minutes are always quiet
+
+The rule needs `cpu_util_prct`, and that is a composite metric: the monitoring
+system has to collect several raw samples before it can work out a percentage.
+Values arrive in waves, and the log shows it happening:
+
+```
+poll done: 2 value(s); missing: ['cpu_idle_instance', ..., 'cpu_util_prct', ...]
+poll done: 6 value(s); missing: ['cpu_util_prct', 'ram_util_prct']
+poll done: 8 value(s); missing: none
+```
+
+Until `cpu_util_prct` arrives the agent skips the Optimiser rather than guess a
+value, so no `[Optimiser]` line appears at all. This is normal. Do not start
+presenting until one does.
+
+### Then decide whether Part 4 is needed
+
+Read that first `[Optimiser]` line and pick one:
+
+- **It says `decided: create_pod`** - the load is already above the threshold.
+  Part 4 is not needed. The demo makes its point without any edit.
+- **It says `no change needed`** - the load is below the threshold and every
+  cycle will keep saying so. Run **Part 4 now, before the audience arrives.**
+  It costs about four minutes of redeploying, which is dead air during a demo
+  but free beforehand. The agent is then already logging `decided: create_pod`
+  when the demo starts, and the system looks alive from the first second.
+
+Either way, the demo begins with the agent visibly working.
+
 ---
 
 ## Part 1 - One command starts everything (2 min)
@@ -103,14 +132,14 @@ own, in order:
 [MonitoringLoop] poll interval 60s
 ```
 
-**What to say:** "That was one command. The agent read the SAT, deployed the
+That was one command. The agent read the SAT, deployed the
 monitoring system itself, turned the SAT into a Kubernetes manifest and deployed
 the application, then subscribed to the metrics the SAT asks for. The 60-second
 poll rate is not hard-coded - it comes from the collection frequencies written in
-the SAT."
+the SAT.
 
 **Point at Terminal 2:** the application pod and the monitoring stack pods are
-there. Nobody deployed them by hand.
+there. 
 
 ---
 
@@ -169,7 +198,7 @@ Terminal 1 - within 60 seconds it says:
 Cluster status: 1 microservice(s), 2 pod(s); 4 system entries filtered out
 ```
 
-**What to say:** "Nobody told the agent about that. It reads the real cluster
+Nobody told the agent about that. It reads the real cluster
 every cycle, so the Optimiser always gets the current picture."
 
 Put it back:
