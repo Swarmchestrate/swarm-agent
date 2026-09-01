@@ -43,7 +43,30 @@ ssh -i <key> <user>@<host>
 
 Terminal 1 should be the largest. It carries the whole demo.
 
-**Terminal 1** - start this and leave it running:
+Only open the sessions for now. The commands for Terminals 1 and 2 come after
+the deploy below - Terminal 1 follows the Swarm Agent's log, and there is no
+agent to follow until it has been deployed.
+
+---
+
+## Before the audience arrives (10 minutes)
+
+Do this early. A first start takes a few minutes to produce metric values, and
+the audience should not be watching a blank screen.
+
+**Step 1 - deploy, in Terminal 3:**
+
+```bash
+cd <repo>/scripts
+bash clear-cluster.sh                                               # ~1 min
+bash deploy-sa.sh stressng ../KB/stressng_SAT_reconfiguration.yaml  # ~2 min
+```
+
+Wait for `daemon set "swarm-agent" successfully rolled out`.
+
+**Step 2 - start the watchers.**
+
+Terminal 1, and leave it running:
 
 ```bash
 LEADER=$(kubectl get pods -n swarm-system -o name \
@@ -53,22 +76,10 @@ kubectl logs -f -n swarm-system $LEADER | grep --line-buffered -E \
   "MonitoringDeploy|AppDeploy|poll interval|subscribed|Cluster status|inputs ready|Optimiser|poll done"
 ```
 
-**Terminal 2**:
+Terminal 2:
 
 ```bash
 watch -n 5 kubectl get pods -n default
-```
-
----
-
-## Do this early. A first start takes a few minutes to produce metric values, and
-
--------------------------------------------
-
-```bash
-cd <repo>/scripts
-bash clear-cluster.sh                                               # ~1 min
-bash deploy-sa.sh stressng ../KB/stressng_SAT_reconfiguration.yaml  # ~2 min
 ```
 
 Then wait until Terminal 1 shows a full cycle with a decision in it:
@@ -236,7 +247,7 @@ cd scripts && bash deploy-sa.sh stressng ../KB/stressng_SAT_reconfiguration.yaml
 ```
 
 Terminal 1 will drop out when the pod restarts. Restart it with the same two
-commands from the layout section (the pod name changes).
+commands from Step 2 above (the pod name changes).
 
 Redeploying takes about 2 minutes, then another 1-2 minutes before values flow.
 Use that gap to explain what is about to happen - or capture this part in advance
@@ -306,7 +317,7 @@ rule. It does not guess a value.
 ## If something goes wrong
 
 **Terminal 1 shows nothing** - the pod restarted, so its name changed. Re-run the
-two commands from the layout section.
+two commands from Step 2 of the preparation section.
 
 **No metric values, `missing:` lists everything** - the monitoring stack needs a
 few more minutes after a fresh deploy. Check with `bash sa-status.sh`.
