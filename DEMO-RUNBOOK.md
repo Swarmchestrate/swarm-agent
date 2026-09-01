@@ -85,7 +85,7 @@ watch -n 5 kubectl get pods -n default
 Then wait until Terminal 1 shows a full cycle with a decision in it:
 
 ```
-[Optimiser] rule 'stressng_reconfiguration': no change needed (cpu_util_prct=57.78, solved in 548 ms)
+[Optimiser] rule 'stressng_reconfiguration': no change needed (node_load=[41.20, 38.90], solved in 548 ms)
 ```
 
 Once that line appears the demo is ready. Check the SAT threshold is at 70:
@@ -99,9 +99,9 @@ If it reads 50, set it back to 70 - the demo starts from "everything is fine".
 
 ### The first three minutes are always quiet
 
-The rule needs `cpu_util_prct`, and that is a composite metric: the monitoring
-system has to collect several raw samples before it can work out a percentage.
-Values arrive in waves, and the log shows it happening:
+The rule needs `node_load` - the load of each machine - and the monitoring
+system has to collect several samples per node before it can report one. Values
+arrive in waves, and the log shows it happening:
 
 ```
 poll done: 2 value(s); missing: ['cpu_idle_instance', ..., 'cpu_util_prct', ...]
@@ -109,7 +109,7 @@ poll done: 6 value(s); missing: ['cpu_util_prct', 'ram_util_prct']
 poll done: 8 value(s); missing: none
 ```
 
-Until `cpu_util_prct` arrives the agent skips the Optimiser rather than guess a
+Until every node has reported, the agent skips the Optimiser rather than guess a
 value, so no `[Optimiser]` line appears at all. This is normal. Do not start
 presenting until one does.
 
@@ -161,11 +161,11 @@ audience is watching:
 
 ```
 K3sClientInput - Cluster status: 1 microservice(s), 1 pod(s); 4 system entries filtered out
-[MonitoringLoop] rule 'stressng_reconfiguration' inputs ready: cpu_util_prct=72.12, threshold_max_node_load=70.00, threshold_min_node_load=40.00
+[MonitoringLoop] rule 'stressng_reconfiguration' inputs ready: node_load=[99.00, 15.27], threshold_max_node_load=70.00, threshold_min_node_load=40.00
 [Optimiser] input 1/3 system:    {"sys_pod_count_max": 5, "sys_node_count_max": 2, "sys_node_count_actual": 2, "sys_mapping_actual": [1, 0, 0, 0, 0]}
 [Optimiser] input 2/3 constants: {"threshold_max_node_load": 70.0, "threshold_min_node_load": 40.0}
-[Optimiser] input 3/3 metrics:   {"cpu_util_prct": 72.11894640000001}
-[Optimiser] rule 'stressng_reconfiguration' decided: create_pod({'msid': 'stressng-v1', 'nodeid': 'swarm-node-1'}) (cpu_util_prct=72.12) - NOT executed, shadow mode
+[Optimiser] input 3/3 metrics:   {"node_load": [99.0, 15.268069999999994]}
+[Optimiser] rule 'stressng_reconfiguration' decided: create_pod({'msid': 'stressng-v1', 'nodeid': 'swarm-node-2'}) (node_load=[99.00, 15.27]) - NOT executed, shadow mode
 [MonitoringLoop] poll done: 8 value(s); missing: none; SLO violated: none
 ```
 
@@ -185,6 +185,12 @@ K3sClientInput - Cluster status: 1 microservice(s), 1 pod(s); 4 system entries f
    and a real node, so this is a call the k3s-client could carry out directly.
    Below the threshold the same line reads `no change needed`.
 5. **poll done** - all 8 metrics arrived, no SLO breach.
+
+**If someone asks about `node_load: [99.00, 15.27]`** - one value per machine,
+in the same order as the node numbers. Node 1 is at 99% and node 2 at 15%. A
+single cluster average would report about 57% and hide both facts. This is what
+lets the Optimiser choose *which* machine a new pod should go on - notice the
+decision names the quiet node, not the busy one.
 
 **If someone asks about `sys_mapping_actual: [1, 0, 0, 0, 0]`** - the Optimiser
 only speaks numbers. Five slots: the one running pod plus four spare. Slot 1
@@ -223,7 +229,8 @@ kubectl scale deployment stressng-v1 -n default --replicas=1
 ## Part 4 - The SAT is the steering wheel (4 min, optional)
 
 **Check first: is this part needed?** Look at the last few cycles in Terminal 1.
-If `cpu_util_prct` is already above 70 and the log says `decided: create_pod`,
+If the busiest value in `node_load` is already above 70 and the log says
+`decided: create_pod`,
 the demo has already made this point - the load crossed the threshold on its own,
 which is more convincing than any edit. Skip to the closing lines below and save
 four minutes.
@@ -256,8 +263,8 @@ and present it as scroll-back for a tighter demo.
 When the cycle lands:
 
 ```
-[MonitoringLoop] rule 'stressng_reconfiguration' inputs ready: cpu_util_prct=60.01, threshold_max_node_load=50.00, threshold_min_node_load=40.00
-[Optimiser] rule 'stressng_reconfiguration' decided: create_pod({'msid': 'stressng-v1', 'nodeid': 'swarm-node-1'}) (cpu_util_prct=60.01) - NOT executed, shadow mode
+[MonitoringLoop] rule 'stressng_reconfiguration' inputs ready: node_load=[60.01, 55.40], threshold_max_node_load=50.00, threshold_min_node_load=40.00
+[Optimiser] rule 'stressng_reconfiguration' decided: create_pod({'msid': 'stressng-v1', 'nodeid': 'swarm-node-2'}) (node_load=[60.01, 55.40]) - NOT executed, shadow mode
 ```
 
 **What to say:** "Same cluster, same load, same code. The only thing that changed

@@ -77,7 +77,7 @@ Look at the section titled **"Optimiser inputs read from the SAT"**:
 [MonitoringLoop] reconfiguration 'stressng_reconfiguration': rule 1392 char(s),
   2 constant(s) ['threshold_max_node_load', 'threshold_min_node_load']; targets ['stressng']
 [MonitoringLoop] rule 'stressng_reconfiguration' needs 3 input(s):
-  cpu_util_prct=metric, threshold_max_node_load=constant, threshold_min_node_load=constant
+  node_load=node-metric, threshold_max_node_load=constant, threshold_min_node_load=constant
 ```
 
 Three separate things happen there.
@@ -99,7 +99,7 @@ the rule refers to. The agent then resolves each one to its source:
 
 | Variable | Comes from |
 | --- | --- |
-| `cpu_util_prct` | a metric we already subscribe to |
+| `node_load` | derived per node from a raw metric subscription |
 | `threshold_max_node_load` | a constant declared in the SAT |
 | `threshold_min_node_load` | a constant declared in the SAT |
 
