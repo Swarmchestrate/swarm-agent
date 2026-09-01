@@ -258,6 +258,14 @@ class SwarmAgent:
             opt.add_input_system(system)
             opt.add_input_constants(inputs["constants"])
             opt.add_input_metrics(inputs["metrics"])
+            # Everything the Optimiser receives this cycle, in the three groups
+            # its API takes them in. Logged in full so the inputs can be read
+            # straight from the log, without re-running anything by hand.
+            constants_shown = json.dumps(inputs["constants"])
+            metrics_shown = json.dumps(inputs["metrics"])
+            self.logger.info(f"[Optimiser] input 1/3 system:    {json.dumps(system)}")
+            self.logger.info(f"[Optimiser] input 2/3 constants: {constants_shown}")
+            self.logger.info(f"[Optimiser] input 3/3 metrics:   {metrics_shown}")
             opt.validate_inputs()
             result = opt.solve(time_limit_milliseconds=10000)
 
