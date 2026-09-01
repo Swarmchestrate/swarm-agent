@@ -65,7 +65,7 @@ def rule_required_inputs(rule: str, mslist: list = None) -> dict:
     }
 
 
-def check_rule_inputs(reconfiguration: dict, metric_names) -> dict:
+def check_rule_inputs(reconfiguration: dict, metric_names, node_metric_names=None) -> dict:
     """
     Work out, per reconfiguration policy, where each application input its rule
     needs comes from: a constant declared in the SAT, one of the metrics we
@@ -77,12 +77,15 @@ def check_rule_inputs(reconfiguration: dict, metric_names) -> dict:
     Args:
         reconfiguration: a get_reconfiguration_details() result.
         metric_names: the metric names the SAT declares (and we subscribe to).
+        node_metric_names: names the Swarm Agent supplies per node rather than
+            as a single value (node_load), which the SAT does not declare.
 
-    Returns {"<policy>": {"sources": {"<var>": "constant"|"metric"},
+    Returns {"<policy>": {"sources": {"<var>": "constant"|"metric"|"node-metric"},
                           "missing": ["<var>", ...],
                           "outputs": [...]}}
     """
     metrics = set(metric_names or [])
+    node_metrics = set(node_metric_names or [])
     report = {}
     for policy, body in (reconfiguration or {}).items():
         rule = body.get("rule") or ""
@@ -94,6 +97,8 @@ def check_rule_inputs(reconfiguration: dict, metric_names) -> dict:
                 sources[name] = "constant"
             elif name in metrics:
                 sources[name] = "metric"
+            elif name in node_metrics:
+                sources[name] = "node-metric"
             else:
                 missing.append(name)
         report[policy] = {
@@ -104,7 +109,8 @@ def check_rule_inputs(reconfiguration: dict, metric_names) -> dict:
     return report
 
 
-def build_rule_inputs(reconfiguration: dict, rule_report: dict, monitoring_data: dict) -> dict:
+def build_rule_inputs(reconfiguration: dict, rule_report: dict, monitoring_data: dict,
+                      node_metrics: dict = None) -> dict:
     """
     Build the application inputs a reconfiguration rule needs for one cycle:
     the subset of the collected metrics the rule actually refers to, plus its
@@ -121,6 +127,11 @@ def build_rule_inputs(reconfiguration: dict, rule_report: dict, monitoring_data:
     A metric can be subscribed and still have no value in a given cycle. Those
     are listed under "unavailable" and "ready" is False: the Optimiser cannot
     calculate while one of its variables has no value.
+
+    `node_metrics` carries values that are one-per-node rather than one number
+    ({"node_load": [11.0, 98.8]}), already ordered to match the node numbering
+    in to_system_input. They are passed through as arrays, which is what the
+    rule declares them as.
 
     Returns {"<policy>": {"metrics": {...}, "constants": {...},
                           "unavailable": [...], "ready": bool}}
@@ -142,6 +153,13 @@ def build_rule_inputs(reconfiguration: dict, rule_report: dict, monitoring_data:
             if source == "constant":
                 constants[name] = as_number(declared.get(name))
                 continue
+            if source == "node-metric":
+                per_node = (node_metrics or {}).get(name)
+                if per_node:
+                    metrics[name] = per_node
+                else:
+                    unavailable.append(name)
+                continue
             samples = values.get(name) or []
             if samples:
                 metrics[name] = sum(samples) / len(samples)
@@ -159,6 +177,45 @@ def build_rule_inputs(reconfiguration: dict, rule_report: dict, monitoring_data:
             "ready": not unavailable,
         }
     return bundle
+
+
+def node_load_array(loads_by_key: dict, node_names: list, node_ips: dict = None) -> list:
+    """
+    Per-node loads ordered to match the node numbering to_system_input uses, so
+    node_load[n] describes the same machine as node number n in the mapping.
+
+    The monitoring stack keys its values by IP address, so `node_ips`
+    (name -> IP, from get_node_ips) is used to look each node up; a value keyed
+    by node name is accepted too.
+
+    Returns None when any node has no value. A short array would silently
+    renumber the nodes, and a guessed value would be worse than none - the
+    caller should skip the cycle instead.
+    """
+    ips = node_ips or {}
+    ordered = []
+    for name in node_names:
+        value = loads_by_key.get(name)
+        if value is None:
+            value = loads_by_key.get(ips.get(name))
+        if value is None:
+            return None
+        ordered.append(float(value))
+    return ordered
+
+
+def describe_inputs(metrics: dict) -> str:
+    """
+    One-line rendering of a rule's metric inputs for the log, handling both a
+    single number and a per-node array.
+    """
+    parts = []
+    for name, value in sorted((metrics or {}).items()):
+        if isinstance(value, (list, tuple)):
+            parts.append(f"{name}=[{', '.join(f'{v:.2f}' for v in value)}]")
+        else:
+            parts.append(f"{name}={value:.2f}")
+    return ", ".join(parts)
 
 
 def to_system_input(

@@ -126,6 +126,8 @@ class SwarmAgent:
         self.latest_rule_inputs = {}
         # Per cycle: what the Optimiser decided, translated to k3s-client calls
         self.latest_decision = {}
+        # Per cycle: load per node, ordered to match the Optimiser's node numbers
+        self.latest_node_load = None
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -234,7 +236,11 @@ class SwarmAgent:
         keeps the loop safe to run while the rule content is still being agreed;
         an "auto" mode that carries the calls out is the next step.
         """
-        from optimizer_interface import to_system_input, actions_to_k3s_calls
+        from optimizer_interface import (
+            actions_to_k3s_calls,
+            describe_inputs,
+            to_system_input,
+        )
         from k3s_client_input import get_node_names
         from swch_optimiser import SwchOptimiser
 
@@ -269,7 +275,7 @@ class SwarmAgent:
             opt.validate_inputs()
             result = opt.solve(time_limit_milliseconds=10000)
 
-            shown = ", ".join(f"{n}={v:.2f}" for n, v in sorted(inputs["metrics"].items()))
+            shown = describe_inputs(inputs["metrics"])
             if result is None or result.solution is None:
                 self.logger.warning(
                     f"[Optimiser] rule '{policy}': no solution ({shown}) - "
@@ -374,9 +380,29 @@ class SwarmAgent:
                             # cannot calculate while a variable has no value.
                             try:
                                 from optimizer_interface import check_rule_inputs
+                                from monitoring_input import (
+                                    NODE_LOAD_SOURCE,
+                                    subscribe_node_metric,
+                                )
+
+                                # Per-node load is not one of the SAT's declared
+                                # metrics - it is derived from a raw metric that
+                                # keeps its per-node origin (see monitoring_input),
+                                # so the rule can reason about individual machines.
+                                node_metric_names = []
+                                try:
+                                    subscribe_node_metric(NODE_LOAD_SOURCE)
+                                    node_metric_names = ["node_load"]
+                                except Exception as e:
+                                    self.logger.warning(
+                                        f"[MonitoringLoop] per-node load unavailable "
+                                        f"({e}); rules referring to node_load cannot run"
+                                    )
 
                                 self.rule_input_report = check_rule_inputs(
-                                    self.latest_reconfiguration, cached_names
+                                    self.latest_reconfiguration,
+                                    cached_names,
+                                    node_metric_names=node_metric_names,
                                 )
                                 for policy, rep in self.rule_input_report.items():
                                     filled = ", ".join(
@@ -431,18 +457,47 @@ class SwarmAgent:
                     # rule refers to, plus its constants, ready to hand over.
                     if self.rule_input_report:
                         try:
-                            from optimizer_interface import build_rule_inputs
+                            from optimizer_interface import (
+                                build_rule_inputs,
+                                describe_inputs,
+                                node_load_array,
+                            )
+
+                            # Load per node, in the same order as the node numbers
+                            # the Optimiser sees. None means at least one node
+                            # reported nothing, and a short array would renumber
+                            # the nodes - so no value is passed at all.
+                            self.latest_node_load = None
+                            try:
+                                from k3s_client_input import get_node_ips, get_node_names
+                                from monitoring_input import node_loads
+
+                                self.latest_node_load = node_load_array(
+                                    node_loads(), get_node_names(), get_node_ips()
+                                )
+                                if self.latest_node_load is None:
+                                    self.logger.warning(
+                                        "[MonitoringLoop] per-node load incomplete this "
+                                        "cycle - not every node reported a value"
+                                    )
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"[MonitoringLoop] per-node load unavailable: {e}"
+                                )
 
                             self.latest_rule_inputs = build_rule_inputs(
-                                self.latest_reconfiguration, self.rule_input_report, envelope
+                                self.latest_reconfiguration,
+                                self.rule_input_report,
+                                envelope,
+                                node_metrics=(
+                                    {"node_load": self.latest_node_load}
+                                    if self.latest_node_load else None
+                                ),
                             )
                             for policy, inputs in self.latest_rule_inputs.items():
                                 if inputs["ready"]:
-                                    shown = ", ".join(
-                                        f"{n}={v:.2f}" if isinstance(v, float) else f"{n}={v}"
-                                        for n, v in sorted(
-                                            {**inputs["metrics"], **inputs["constants"]}.items()
-                                        )
+                                    shown = describe_inputs(
+                                        {**inputs["metrics"], **inputs["constants"]}
                                     )
                                     self.logger.info(
                                         f"[MonitoringLoop] rule '{policy}' inputs ready: {shown}"

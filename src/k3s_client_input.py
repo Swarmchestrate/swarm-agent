@@ -52,6 +52,29 @@ def get_node_names() -> list:
     return sorted(n.metadata.name for n in client.CoreV1Api().list_node().items)
 
 
+def get_node_ips() -> dict:
+    """
+    Node name -> internal IP address.
+
+    The monitoring stack keys its per-node values by IP, while the Optimiser
+    numbers nodes by their position in get_node_names(). This is the lookup
+    between the two, so a per-node metric can be placed in the right slot.
+    """
+    from kubernetes import client, config
+    try:
+        config.load_incluster_config()
+    except Exception:
+        config.load_kube_config()
+
+    addresses = {}
+    for node in client.CoreV1Api().list_node().items:
+        for address in node.status.addresses or []:
+            if address.type == "InternalIP":
+                addresses[node.metadata.name] = address.address
+                break
+    return addresses
+
+
 def get_cluster_status(label_selector: str = None, microservices: set = None) -> dict:
     """
     Current pod->node mapping grouped by microservice, from the k3s-client lib.

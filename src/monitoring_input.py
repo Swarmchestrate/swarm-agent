@@ -269,6 +269,67 @@ def poll_interval_from_details(details: dict, floor_seconds: int = 60) -> int:
     return max(slowest, floor_seconds)
 
 
+# Raw source for per-node load. The Optimiser needs load per node (see the
+# node_load parameter its examples take), but a composite metric only publishes
+# per node when the SAT sets "grouping: per_host" - and that was measured to
+# stop every other metric arriving on the standard subscriptions. So the per-node
+# figure is derived here from the raw idle metric instead, using the same
+# formula the SAT's cpu_util_prct composite uses: 100 - mean(cpu_idle_instance).
+NODE_LOAD_SOURCE = "cpu_idle_instance"
+
+_raw_manager = None
+
+
+def _get_raw_manager():
+    """
+    A subscription manager of our own, for raw (per-node) metrics.
+
+    The library's module-level manager refuses a metric in raw mode when it is
+    already subscribed in standard mode, and the Swarm Agent subscribes every
+    SAT metric that way. A separate instance keeps the two sets independent.
+    """
+    global _raw_manager
+    if _raw_manager is None:
+        from swchmonclient.metrics import MetricSubscriptionManager
+        _raw_manager = MetricSubscriptionManager()
+    return _raw_manager
+
+
+def subscribe_node_metric(metric: str = NODE_LOAD_SOURCE) -> list:
+    """
+    Subscribe `metric` in raw mode on every node, so its values arrive keyed by
+    node instead of averaged into one number. Returns the node keys subscribed.
+    """
+    threads = _get_raw_manager().subscribe_metric_raw(metric, "all") or {}
+    nodes = sorted(threads.keys())
+    logger.info(f"Subscribed to raw metric '{metric}' on {len(nodes)} node(s): {nodes}")
+    return nodes
+
+
+def node_loads(metric: str = NODE_LOAD_SOURCE, seconds: int = 300) -> dict:
+    """
+    Load percentage per node, as {node-key: load}.
+
+    `metric` is an idle percentage, so load is 100 minus its mean over the
+    window - the same formula the SAT's cpu_util_prct composite applies, just
+    kept per node rather than averaged across the cluster.
+
+    Nodes that reported nothing in the window are left out; the caller decides
+    what an incomplete picture means.
+    """
+    raw = _get_raw_manager().query_metric_values_raw(metric, seconds) or {}
+    loads = {}
+    for node, samples in raw.items():
+        values = [
+            sample.get("value") for sample in samples
+            if isinstance(sample.get("value"), (int, float))
+        ]
+        if values:
+            loads[node] = 100.0 - (sum(values) / len(values))
+    logger.debug(f"node loads from '{metric}': {loads}")
+    return loads
+
+
 def subscribe_metrics(metrics: list) -> None:
     """Start (or reuse) standard-metric subscriptions for all given metrics."""
     from swchmonclient import subscribe_metric

@@ -156,22 +156,65 @@ service_template:
           float: threshold_min_node_load;
           float: threshold_max_node_load;
 
-          % --- application metrics (from the monitoring stack) ---
-          float: cpu_util_prct;
+          % --- application parameters (one value per node) ---
+          % Load per machine, not one figure for the whole cluster: a cluster
+          % average hides the case this rule exists to handle, where one node is
+          % saturated while another sits idle.
+          array[1..sys_node_count_actual] of float: node_load;
 
-          % node count stays as it is; never scale below one pod
-          constraint sys_node_count_next = sys_node_count_actual;
+          % --- derived ---
+          % Average load over only the nodes that actually host a pod. Empty
+          % nodes would drag the average down and hide a busy one.
+          int: sys_node_count_used =
+            sum(n in 1..sys_node_count_actual)
+              (exists(p in 1..sys_pod_count_max)(sys_mapping_actual[p] = n));
+          float: avg_load_on_used_nodes =
+            if sys_node_count_used > 0 then
+              sum(n in 1..sys_node_count_actual
+                  where exists(p in 1..sys_pod_count_max)(sys_mapping_actual[p] = n))
+                 (node_load[n]) / int2float(sys_node_count_used)
+            else
+              threshold_min_node_load
+                + (threshold_max_node_load - threshold_min_node_load) / 2
+            endif;
+
+          % --- constraints ---
+          % 1) never scale below one pod
           constraint sys_pod_count_next >= 1;
 
-          % add a pod when CPU is above the upper threshold,
-          % remove one when it is below the lower threshold
-          constraint cpu_util_prct > threshold_max_node_load ->
-            sys_pod_count_next > sys_pod_count_actual;
-          constraint cpu_util_prct < threshold_min_node_load ->
-            sys_pod_count_next < sys_pod_count_actual \/ sys_pod_count_actual = 1;
+          % 2) at most two pods on any one node, so load has somewhere to spread
+          constraint forall(n in 1..sys_node_count_max)
+            (sum(p in 1..sys_pod_count_max)(bool2int(sys_mapping_next[p] = n)) <= 2);
 
-          % among valid answers, prefer the smallest change
-          var int: loss = 100 * sum(p in 1..sys_pod_count_max)
-            (bool2int(sys_mapping_next[p] != sys_mapping_actual[p]));
+          % 3) a pod sits on a real node, or nowhere
+          constraint forall(p in 1..sys_pod_count_max)
+            ((sys_mapping_next[p] = 0)
+             \/ (sys_mapping_next[p] >= 1 /\ sys_mapping_next[p] <= sys_node_count_next));
+
+          % 4) the node count is fixed: creating a machine is the Resource
+          %    Agent's job, not the Swarm Agent's
+          constraint sys_node_count_next = sys_node_count_actual;
+
+          % 5) add a pod when the used nodes are above the upper threshold,
+          %    while there is both a free slot and room on a node for it
+          constraint (avg_load_on_used_nodes > threshold_max_node_load
+                      /\ sys_pod_count_actual < sys_pod_count_max
+                      /\ sys_pod_count_actual < sys_node_count_actual * 2) ->
+            sys_pod_count_next > sys_pod_count_actual;
+
+          % 6) remove a pod when they are below the lower threshold
+          constraint (avg_load_on_used_nodes < threshold_min_node_load
+                      /\ sys_pod_count_actual > 1) ->
+            sys_pod_count_next < sys_pod_count_actual;
+
+          % --- optimisation goal ---
+          % Prefer the smallest change, then the fewest pods moved, then the
+          % least loaded machines - so a new pod lands on a quiet node.
+          var int: loss =
+            100 * sum(p in 1..sys_pod_count_max)
+                  (bool2int(sys_mapping_next[p] != sys_mapping_actual[p]))
+            + 10 * abs(sys_pod_count_actual - sys_pod_count_next)
+            + sum(p in 1..sys_pod_count_max where sys_mapping_next[p] > 0)
+                 (round(node_load[sys_mapping_next[p]]));
           solve minimize loss;
       targets: [ stressng ]
