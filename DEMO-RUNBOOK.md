@@ -21,11 +21,11 @@ Three terminals, all SSH'd to the control-plane node:
 ssh -i ~/.ssh/sztaki_ssh_key.pem ubuntu@193.225.250.53
 ```
 
-| Terminal | Name it | What it shows |
-|---|---|---|
-| **1** | The story | The leader's log, filtered. This is the terminal people watch. |
+| Terminal    | Name it     | What it shows                                                    |
+| ----------- | ----------- | ---------------------------------------------------------------- |
+| **1** | The story   | The leader's log, filtered. This is the terminal people watch.   |
 | **2** | The cluster | `kubectl get pods`, refreshing. Proof the log matches reality. |
-| **3** | The driver | Where you type. Should be quiet most of the time. |
+| **3** | The driver  | Where you type. Should be quiet most of the time.                |
 
 Make Terminal 1 the biggest one. It carries the whole demo.
 
@@ -47,7 +47,7 @@ watch -n 5 kubectl get pods -n default
 
 ---
 
-## Before the audience arrives (10 minutes)
+## Before 
 
 Do this early. The first start takes a few minutes to produce metric values,
 and you do not want people watching a blank screen.
@@ -107,8 +107,11 @@ are watching:
 
 ```
 K3sClientInput - Cluster status: 1 microservice(s), 1 pod(s); 4 system entries filtered out
-[MonitoringLoop] rule 'stressng_reconfiguration' inputs ready: cpu_util_prct=57.78, threshold_max_node_load=70.00, threshold_min_node_load=40.00
-[Optimiser] rule 'stressng_reconfiguration': no change needed (cpu_util_prct=57.78, solved in 548 ms)
+[MonitoringLoop] rule 'stressng_reconfiguration' inputs ready: cpu_util_prct=72.12, threshold_max_node_load=70.00, threshold_min_node_load=40.00
+[Optimiser] input 1/3 system:    {"sys_pod_count_max": 5, "sys_node_count_max": 2, "sys_node_count_actual": 2, "sys_mapping_actual": [1, 0, 0, 0, 0]}
+[Optimiser] input 2/3 constants: {"threshold_max_node_load": 70.0, "threshold_min_node_load": 40.0}
+[Optimiser] input 3/3 metrics:   {"cpu_util_prct": 72.11894640000001}
+[Optimiser] rule 'stressng_reconfiguration' decided: create_pod({'msid': 'stressng-v1', 'nodeid': 'sajid-swarm-agent-interfaces'}) (cpu_util_prct=72.12) - NOT executed, shadow mode
 [MonitoringLoop] poll done: 8 value(s); missing: none; SLO violated: none
 ```
 
@@ -120,9 +123,20 @@ K3sClientInput - Cluster status: 1 microservice(s), 1 pod(s); 4 system entries f
    nothing else. The Optimiser should only reason about the application.
 2. **inputs ready** - the live CPU value from the monitoring system, next to the
    two thresholds. Both thresholds were read out of the SAT, not from our code.
-3. **Optimiser** - the rule from the SAT went to the Optimiser library with those
-   numbers. It solved in half a second and said nothing needs to change.
-4. **poll done** - all 8 metrics arrived, no SLO breach.
+3. **input 1/3, 2/3, 3/3** - everything handed to the Optimiser this cycle, in
+   the three groups its API takes: the cluster picture, the SAT's constants, and
+   the live metrics. Nothing is hidden; this is the whole input.
+4. **Optimiser decided** - the rule from the SAT was solved with those numbers.
+   Above the threshold it asks for another pod, and it names a real deployment
+   and a real node, so this is a call the k3s-client could carry out directly.
+   Below the threshold the same line reads `no change needed`.
+5. **poll done** - all 8 metrics arrived, no SLO breach.
+
+**If someone asks about `sys_mapping_actual: [1, 0, 0, 0, 0]`** - the Optimiser
+only speaks numbers. Five slots: the one running pod plus four spare. Slot 1
+holds `1`, meaning node number 1 (`sajid-swarm-agent-interfaces`). The zeros are
+empty slots the Optimiser is free to fill. Its answer comes back in the same
+number language and the Swarm Agent translates it back into names.
 
 ---
 
@@ -154,9 +168,15 @@ kubectl scale deployment stressng-v1 -n default --replicas=1
 
 ## Part 4 - The SAT is the steering wheel (4 min)
 
-This is the part that matters. The CPU is sitting near 60%. The SAT currently
-says "act above 70", so the agent keeps saying no change. Lower the threshold
-in the SAT and the same cluster, with the same load, produces a decision.
+**Check first: do you even need this part?** Look at the last few cycles in
+Terminal 1. If `cpu_util_prct` is already above 70 and the log says `decided:
+create_pod`, the demo has already made this point for you - the load crossed the
+threshold on its own, which is more convincing than any edit. Skip to the
+closing lines below and save four minutes.
+
+Run this part only when the CPU is sitting *below* the threshold and every cycle
+says `no change needed`. Then lower the threshold in the SAT, and the same
+cluster, with the same load, produces a decision.
 
 In **Terminal 3**:
 
