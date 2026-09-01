@@ -285,35 +285,6 @@ cd scripts && bash deploy-sa.sh stressng ../KB/stressng_SAT_reconfiguration.yaml
 
 ---
 
-## Questions to expect
-
-**"Is it really automatic, or are commands being run?"**
-One command at the start. Everything in Parts 2-4 happens on a timer inside the
-agent. The only commands typed during the demo are the ones that change the
-cluster or the SAT - to prove the agent reacts to them.
-
-**"Why does it not actually add the pod?"**
-Shadow mode, on purpose. The decision is real; carrying it out is switched off
-until the rule content is agreed. The translation from the Optimiser's answer to
-a k3s-client call is already built and shown in the log.
-
-**"Where does the rule come from?"**
-The SAT, in the `swch:Reconfiguration` policy. The Sardou library parses it and
-hands back the rule and its constants. The Optimiser solves it. The Swarm Agent's
-code contains neither the rule nor any threshold.
-
-**"Which parts are the Swarm Agent and which are libraries?"**
-Four libraries do the work: Sardou parses the SAT, the monitoring client collects
-metrics, the k3s-client reads and changes the cluster, and the Optimiser decides.
-The Swarm Agent wires them together and runs the loop - including the format
-conversions between them, because they do not speak the same language.
-
-**"What if a metric is missing?"**
-The cycle logs which rule variable is unfilled and skips the Optimiser for that
-rule. It does not guess a value.
-
----
-
 ## If something goes wrong
 
 **Terminal 1 shows nothing** - the pod restarted, so its name changed. Re-run the
