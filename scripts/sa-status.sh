@@ -56,7 +56,7 @@ echo "$LOGS" | grep "Cluster status" | tail -2
 echo ""
 echo "--- Last Optimiser decision (shadow mode: decided, not executed) ---"
 DECISION=$(echo "$LOGS" | grep -E "inputs ready|\[Optimiser\] rule" | tail -2)
-echo "${DECISION:-none yet - the rule's inputs have not all arrived}"
+echo "${DECISION:-none yet - the rule inputs have not all arrived}"
 
 echo ""
 echo "--- Warnings/errors in the leader log (last 5) ---"
