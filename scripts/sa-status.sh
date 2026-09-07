@@ -43,7 +43,7 @@ echo "$LOGS" | grep -E "MonitoringDeploy|AppDeploy|Applying |Application initial
 
 echo ""
 echo "--- Optimiser inputs read from the SAT ---"
-echo "$LOGS" | grep -E "microservice\(s\) from SAT|reconfiguration '|needs .* input|unfilled variable" | head -6   || echo "none (the SAT declares no reconfiguration policy)"
+echo "$LOGS" | grep -E "microservice\(s\) from SAT|reconfiguration '|no reconfiguration policy|needs .* input|unfilled variable" | head -6   || echo "none (the SAT declares no reconfiguration policy)"
 
 echo ""
 echo "--- Last 3 poll results (monitoring + SLO) ---"
@@ -56,7 +56,14 @@ echo "$LOGS" | grep "Cluster status" | tail -2
 echo ""
 echo "--- Last Optimiser decision (shadow mode: decided, not executed) ---"
 DECISION=$(echo "$LOGS" | grep -E "inputs ready|\[Optimiser\] rule" | tail -2)
-echo "${DECISION:-none yet - the rule inputs have not all arrived}"
+if [ -n "$DECISION" ]; then
+  echo "$DECISION"
+elif echo "$LOGS" | grep -q "SAT declares no reconfiguration policy"; then
+  echo "none - this SAT has no reconfiguration policy, so the Optimiser is not used"
+  echo "       (deploy with ../KB/stressng_SAT_reconfiguration.yaml to enable it)"
+else
+  echo "none yet - the rule inputs have not all arrived"
+fi
 
 echo ""
 echo "--- Warnings/errors in the leader log (last 5) ---"
