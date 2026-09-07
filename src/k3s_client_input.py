@@ -93,14 +93,23 @@ def get_cluster_status(label_selector: str = None, microservices: set = None) ->
             f"(known 0.3.0 serialization bug)"
         )
         mapping = _fallback_mapping(label_selector)
-    # Keep only the application's microservices when the caller passes the set
-    # declared in the SAT. The monitoring stack's own pods (ems*, netdata) are
-    # infrastructure, not something the Optimiser orchestrates.
+    # The namespace is the real boundary: system components (the Swarm Agent,
+    # the monitoring stack) live in swarm-system and the mapping is read from the
+    # application namespace, so normally nothing here needs filtering. The SAT's
+    # microservice set is kept as a safety net for anything else that turns up in
+    # the application namespace - and it is never silent about what it drops.
     dropped = 0
     if microservices is not None:
         full = mapping
         mapping = {ms: pods for ms, pods in full.items() if ms in microservices}
         dropped = len(full) - len(mapping)
+        if dropped:
+            unexpected = sorted(ms for ms in full if ms not in microservices)
+            logger.warning(
+                f"Cluster status: {dropped} entr{'y' if dropped == 1 else 'ies'} in the "
+                f"application namespace not declared by the SAT, left out of the "
+                f"Optimiser input: {unexpected}"
+            )
 
     pods = sum(len(p) for p in mapping.values())
     suffix = f"; {dropped} system entr{'y' if dropped == 1 else 'ies'} filtered out" if dropped else ""

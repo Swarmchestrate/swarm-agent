@@ -405,9 +405,19 @@ def evaluate_slo(monitoring_data: dict, details: dict) -> list:
         if not slo:
             continue
 
-        # Sardou may return a single constraint (dict) or several (list).
-        constraints = slo if isinstance(slo, list) else [slo]
+        # Sardou may return a single constraint (dict), several (list), or a
+        # grouped form ({"or_list": [...]} / {"and_list": [...]}). Each
+        # constraint is evaluated on its own; how a group combines is reported
+        # alongside so the caller can apply it.
+        group = None
+        if isinstance(slo, dict) and ("or_list" in slo or "and_list" in slo):
+            group = "or" if "or_list" in slo else "and"
+            constraints = slo.get("or_list") or slo.get("and_list") or []
+        else:
+            constraints = slo if isinstance(slo, list) else [slo]
         for c in constraints:
+            if not isinstance(c, dict):
+                continue
             metric = c.get("metric")
             operator = c.get("operator")
             threshold = c.get("threshold")
@@ -424,6 +434,7 @@ def evaluate_slo(monitoring_data: dict, details: dict) -> list:
                 "threshold": threshold,
                 "observed": observed,
                 "violated": _OPERATORS[operator](observed, threshold),
+                "group": group,
             })
 
     return results

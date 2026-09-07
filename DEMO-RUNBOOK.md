@@ -1,15 +1,8 @@
 # Live demo runbook
 
-A 12-minute demo of the Swarm Agent running on its own: one command starts
-everything, and from then on the agent collects metrics, reads the cluster, and
-asks the Optimiser what to do - every cycle, with nobody typing.
 
 `DEMO-k3s-client.md` is the reference guide with every command. This file is the
 script for presenting the system to an audience.
-
-**What the audience should walk away with:** the Swarm Agent is autonomous, and
-the SAT is the thing that steers it. Change the SAT, the behaviour changes. No
-code change, no redeploy by hand.
 
 ## Before reading further
 
@@ -51,8 +44,7 @@ agent to follow until it has been deployed.
 
 ## Preparation (10 minutes)
 
-Do this early. A first start takes a few minutes to produce metric values, and
-the audience should not be watching a blank screen.
+Do this early. A first start takes a few minutes to produce metric values.
 
 **Step 1 - deploy, in Terminal 3:**
 
@@ -109,9 +101,6 @@ poll done: 6 value(s); missing: ['cpu_util_prct', 'ram_util_prct']
 poll done: 8 value(s); missing: none
 ```
 
-Until every node has reported, the agent skips the Optimiser rather than guess a
-value, so no `[Optimiser]` line appears at all. This is normal. Do not start
-presenting until one does.
 
 ### Then decide whether Part 4 is needed
 
@@ -149,18 +138,23 @@ the application, then subscribed to the metrics the SAT asks for. The 60-second
 poll rate is not hard-coded - it comes from the collection frequencies written in
 the SAT.
 
-**Point at Terminal 2:** the application pod and the monitoring stack pods are
-there. 
+**Point at Terminal 2:** the application pod is there, on its own. The
+monitoring stack and the Swarm Agent are in the `swarm-system` namespace -
+system components and application pods are kept apart by namespace, which is
+what lets the agent work with any application without knowing its name:
+
+```bash
+kubectl get pods -n swarm-system
+```
 
 ---
 
 ## Part 2 - The loop runs by itself (3 min)
 
-Now just wait. A new cycle appears every 60 seconds. Let one land while the
-audience is watching:
+Now just wait. A new cycle appears every 60 seconds. 
 
 ```
-K3sClientInput - Cluster status: 1 microservice(s), 1 pod(s); 4 system entries filtered out
+K3sClientInput - Cluster status: 1 microservice(s), 1 pod(s)
 [MonitoringLoop] rule 'stressng_reconfiguration' inputs ready: node_load=[99.00, 15.27], threshold_max_node_load=70.00, threshold_min_node_load=40.00
 [Optimiser] input 1/3 system:    {"sys_pod_count_max": 5, "sys_node_count_max": 2, "sys_node_count_actual": 2, "sys_mapping_actual": [1, 0, 0, 0, 0]}
 [Optimiser] input 2/3 constants: {"threshold_max_node_load": 70.0, "threshold_min_node_load": 40.0}
@@ -169,12 +163,10 @@ K3sClientInput - Cluster status: 1 microservice(s), 1 pod(s); 4 system entries f
 [MonitoringLoop] poll done: 8 value(s); missing: none; SLO violated: none
 ```
 
-**What to say, line by line:**
-
 1. **Cluster status** - the agent asks the k3s-client library which pod is on
-   which node. The "4 system entries filtered out" is the monitoring stack's own
-   pods being dropped, because the SAT says the application is `stressng` and
-   nothing else. The Optimiser should only reason about the application.
+   which node, in the application namespace only. The monitoring stack and the
+   agent itself live in `swarm-system`, so they never appear here - the
+   Optimiser only ever sees the application.
 2. **inputs ready** - the live CPU value from the monitoring system, next to the
    two thresholds. Both thresholds were read out of the SAT, not from any code.
 3. **input 1/3, 2/3, 3/3** - everything handed to the Optimiser this cycle, in
@@ -185,18 +177,11 @@ K3sClientInput - Cluster status: 1 microservice(s), 1 pod(s); 4 system entries f
    and a real node, so this is a call the k3s-client could carry out directly.
    Below the threshold the same line reads `no change needed`.
 5. **poll done** - all 8 metrics arrived, no SLO breach.
-
-**If someone asks about `node_load: [99.00, 15.27]`** - one value per machine,
-in the same order as the node numbers. Node 1 is at 99% and node 2 at 15%. A
-single cluster average would report about 57% and hide both facts. This is what
-lets the Optimiser choose *which* machine a new pod should go on - notice the
-decision names the quiet node, not the busy one.
-
-**If someone asks about `sys_mapping_actual: [1, 0, 0, 0, 0]`** - the Optimiser
-only speaks numbers. Five slots: the one running pod plus four spare. Slot 1
-holds `1`, meaning node number 1. The zeros are empty slots the Optimiser is free
-to fill. Its answer comes back in the same number language and the Swarm Agent
-translates it back into names.
+6.  **`sys_mapping_actual: [1, 0, 0, 0, 0]`** - the Optimiser
+   only speaks numbers. Five slots: the one running pod plus four spare. Slot 1
+   holds `1`, meaning node number 1. The zeros are empty slots the Optimiser is free
+   to fill. Its answer comes back in the same number language and the Swarm Agent
+   translates it back into names.
 
 ---
 
@@ -212,11 +197,8 @@ Watch Terminal 2: a second pod appears. Then wait for the next cycle in
 Terminal 1 - within 60 seconds it says:
 
 ```
-Cluster status: 1 microservice(s), 2 pod(s); 4 system entries filtered out
+Cluster status: 1 microservice(s), 2 pod(s)
 ```
-
-Nobody told the agent about that. It reads the real cluster
-every cycle, so the Optimiser always gets the current picture."
 
 Put it back:
 
@@ -226,7 +208,7 @@ kubectl scale deployment stressng-v1 -n default --replicas=1
 
 ---
 
-## Part 4 - The SAT is the steering wheel (4 min, optional)
+## Part 4 - 
 
 **Check first: is this part needed?** Look at the last few cycles in Terminal 1.
 If the busiest value in `node_load` is already above 70 and the log says
@@ -267,15 +249,10 @@ When the cycle lands:
 [Optimiser] rule 'stressng_reconfiguration' decided: create_pod({'msid': 'stressng-v1', 'nodeid': 'swarm-node-2'}) (node_load=[60.01, 55.40]) - NOT executed, shadow mode
 ```
 
-**What to say:** "Same cluster, same load, same code. The only thing that changed
-is one number in the SAT. The agent now decides to add a pod of `stressng-v1` on
-that node - and it names a real deployment and a real node, so this is a call the
-k3s-client can carry out directly."
-
-**Then point at the end of the line:** "It says NOT executed. The agent is
+It says NOT executed. The agent is
 running in shadow mode - it decides and logs, but changes nothing. That is
 deliberate while the rule content is still being agreed. Executing the decision
-is the next step."
+is the next step.
 
 ---
 

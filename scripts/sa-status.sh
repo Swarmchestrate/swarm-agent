@@ -26,7 +26,7 @@ echo ""
 echo "--- Pods (swarm-system) ---"
 kubectl get pods -n swarm-system -o wide 2>/dev/null || echo "namespace missing - SA not deployed"
 echo ""
-echo "--- Pods (default: app + monitoring stack) ---"
+echo "--- Pods (default: the application; the monitoring stack is in swarm-system above) ---"
 kubectl get pods -n default 2>/dev/null
 
 if [ -z "$LEADER" ]; then

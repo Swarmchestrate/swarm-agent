@@ -204,9 +204,16 @@ class SwarmAgent:
         a failure here does NOT stop the SA — the monitoring loop keeps retrying
         once the broker is up.
 
+        The stack goes into the Swarm Agent's own namespace, not the
+        application's. System components (this agent, the monitoring stack) and
+        application pods are then separated by namespace, which is what lets the
+        cluster-status mapping stay application-only for any application without
+        knowing its name.
+
         Controlled by env vars:
           SA_DEPLOY_MONITORING (default "true")  -> set to "false" to skip
           SA_MON_USE_KB        (default "false") -> deploy_monitoring use_kb mode
+          SA_MON_NAMESPACE     (default "swarm-system") -> where the stack is deployed
         """
         if os.getenv("SA_DEPLOY_MONITORING", "true").strip().lower() not in ("true", "1", "yes"):
             self.logger.info("[MonitoringDeploy] disabled (SA_DEPLOY_MONITORING); skipping stack deploy")
@@ -214,10 +221,12 @@ class SwarmAgent:
         try:
             from swchmonclient import deploy_monitoring
             use_kb = os.getenv("SA_MON_USE_KB", "false").strip().lower() in ("true", "1", "yes")
+            namespace = os.getenv("SA_MON_NAMESPACE", "swarm-system").strip() or "swarm-system"
             self.logger.info(
-                f"[MonitoringDeploy] deploying monitoring stack from {self.tosca_path} (use_kb={use_kb})"
+                f"[MonitoringDeploy] deploying monitoring stack from {self.tosca_path} "
+                f"into namespace '{namespace}' (use_kb={use_kb})"
             )
-            rc = deploy_monitoring(sat_file=self.tosca_path, use_kb=use_kb)
+            rc = deploy_monitoring(sat_file=self.tosca_path, use_kb=use_kb, namespace=namespace)
             if rc == 0:
                 self.logger.info("[MonitoringDeploy] monitoring stack deployed successfully")
             else:
