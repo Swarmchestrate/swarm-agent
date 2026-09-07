@@ -43,7 +43,7 @@ echo "$LOGS" | grep -E "MonitoringDeploy|AppDeploy|Applying |Application initial
 
 echo ""
 echo "--- Optimiser inputs read from the SAT ---"
-echo "$LOGS" | grep -E "microservice\(s\) from SAT|reconfiguration |rule '|unfilled variable" | head -6   || echo "none (the SAT declares no reconfiguration policy)"
+echo "$LOGS" | grep -E "microservice\(s\) from SAT|reconfiguration '|needs .* input|unfilled variable" | head -6   || echo "none (the SAT declares no reconfiguration policy)"
 
 echo ""
 echo "--- Last 3 poll results (monitoring + SLO) ---"
@@ -54,11 +54,16 @@ echo "--- Last cluster status (pod->node input for the Optimiser) ---"
 echo "$LOGS" | grep "Cluster status" | tail -2
 
 echo ""
+echo "--- Last Optimiser decision (shadow mode: decided, not executed) ---"
+DECISION=$(echo "$LOGS" | grep -E "inputs ready|\[Optimiser\] rule" | tail -2)
+echo "${DECISION:-none yet - the rule's inputs have not all arrived}"
+
+echo ""
 echo "--- Warnings/errors in the leader log (last 5) ---"
 echo "$LOGS" | grep -E "WARNING|ERROR" | tail -5 || echo "none"
 
 echo ""
 echo "--- Known-issue check ---"
 FB=$(echo "$LOGS" | grep -c "using direct-API fallback")
-echo "k3s-client mapping fallback used: $FB time(s) (goes to 0 once the lib fix is released)"
+echo "k3s-client mapping fallback used: $FB time(s) (expected 0 with k3s-client 0.3.1 or later)"
 echo "============================================================"
