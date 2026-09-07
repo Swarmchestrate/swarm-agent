@@ -88,9 +88,13 @@ SA's ConfigMap and used by both the SA and the monitoring stack).
   idle for monitoring.
 - The monitoring-stack deploy is best-effort: if it fails, the SA keeps running
   and the monitoring loop retries once the broker is up.
-- On some clusters the EMS server can restart a few times on first boot before it
-  settles (a slow-startup vs. health-probe race). If it never becomes `Ready`,
-  check the EMS server's health-probe settings.
+- The EMS server's upstream manifest has a liveness probe with no initial delay,
+  so Kubernetes kills it about 30 s after start - before it can open its port -
+  and on a busy node it never comes up. The Swarm Agent works around this right
+  after deploying the stack by adding a `startupProbe` to the
+  `emsserver-ems-server` Deployment (see `_relax_monitoring_probes` in
+  `src/SA.py`). Set `SA_MON_PROBE_WORKAROUND=false` to skip it once the manifest
+  is fixed upstream.
 
 ## Future work: cluster-status input (k3s-client library)
 

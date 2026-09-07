@@ -214,6 +214,8 @@ class SwarmAgent:
           SA_DEPLOY_MONITORING (default "true")  -> set to "false" to skip
           SA_MON_USE_KB        (default "false") -> deploy_monitoring use_kb mode
           SA_MON_NAMESPACE     (default "swarm-system") -> where the stack is deployed
+          SA_MON_PROBE_WORKAROUND (default "true") -> add a startupProbe to the EMS
+                               server, see _relax_monitoring_probes
         """
         if os.getenv("SA_DEPLOY_MONITORING", "true").strip().lower() not in ("true", "1", "yes"):
             self.logger.info("[MonitoringDeploy] disabled (SA_DEPLOY_MONITORING); skipping stack deploy")
@@ -229,11 +231,61 @@ class SwarmAgent:
             rc = deploy_monitoring(sat_file=self.tosca_path, use_kb=use_kb, namespace=namespace)
             if rc == 0:
                 self.logger.info("[MonitoringDeploy] monitoring stack deployed successfully")
+                self._relax_monitoring_probes(namespace)
             else:
                 self.logger.error(f"[MonitoringDeploy] deploy_monitoring returned {rc} (non-zero)")
         except Exception as e:
             self.logger.error(
                 f"[MonitoringDeploy] failed: {e}; continuing — monitoring loop will retry once the broker is up"
+            )
+
+    def _relax_monitoring_probes(self, namespace: str):
+        """
+        WORKAROUND for the monitoring stack's upstream manifest.
+
+        The EMS server Deployment (monitoring-client release v0.1.0,
+        ems+netdata-k3s_parametric.yaml) declares its liveness probe as a bare
+        tcpSocket with no initial delay. With Kubernetes defaults that is three
+        failed checks ten seconds apart, so the container is killed about 30 s
+        after start - before a Spring Boot server can open its port - and it
+        restarts in a loop, never creating the ems-client daemonset. On a busy
+        node this happens every time.
+
+        A startupProbe makes liveness wait until the port has opened once, with
+        up to five minutes to get there; liveness is unchanged after that.
+        Best-effort and idempotent. Remove once the manifest carries its own
+        startupProbe. SA_MON_PROBE_WORKAROUND=false skips it.
+        """
+        if os.getenv("SA_MON_PROBE_WORKAROUND", "true").strip().lower() not in ("true", "1", "yes"):
+            return
+        name = "emsserver-ems-server"
+        try:
+            try:
+                config.load_incluster_config()
+            except Exception:
+                config.load_kube_config()
+            apps = client.AppsV1Api()
+            container = apps.read_namespaced_deployment(name, namespace).spec.template.spec.containers[0]
+            if container.startup_probe:
+                return                                  # already there (restart, or fixed upstream)
+            apps.patch_namespaced_deployment(name, namespace, {
+                "spec": {"template": {"spec": {"containers": [{
+                    "name": container.name,
+                    "startupProbe": {
+                        "tcpSocket": {"port": "http"},
+                        "periodSeconds": 10,
+                        "failureThreshold": 30,
+                    },
+                }]}}},
+            })
+            self.logger.info(
+                f"[MonitoringDeploy] workaround: added a startupProbe to {name} "
+                f"(its manifest has none, so Kubernetes kills it before it can start)"
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"[MonitoringDeploy] could not add the startupProbe to {name}: {e}; "
+                f"if the EMS server keeps restarting, patch it by hand"
             )
 
     def _run_optimiser(self, mode: str = "shadow"):
