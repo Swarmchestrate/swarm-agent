@@ -349,9 +349,13 @@ def actions_to_k3s_calls(actions: list, index: dict) -> list:
             slot = act.get("pod", 0) - 1
             ms_slots = slots.get(msid, [])
             pod = ms_slots[slot] if 0 <= slot < len(ms_slots) else None
-            # A pinned pod belongs to "<deployment>-pinned-<node>", not to the
-            # microservice's main deployment, so take the name from the pod.
-            owner = deployment_name_of(pod) if pod else deployment
+            # A pinned pod belongs to "<deployment>-pinned-<node>" (the k3s-client's
+            # naming), not to the microservice's main deployment. The action says
+            # which node the pod sits on, so the name can be built the same way.
+            node_no = act.get("node", 0)
+            on_node = nodes[node_no - 1] if 0 < node_no <= len(nodes) else None
+            pinned = bool(pod and "-pinned-" in pod and on_node)
+            owner = f"{deployment}-pinned-{on_node}" if pinned else deployment
             calls.append({
                 "action": kind,
                 "method": "delete_pod",
