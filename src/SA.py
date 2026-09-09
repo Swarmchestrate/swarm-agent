@@ -126,6 +126,9 @@ class SwarmAgent:
         self.latest_rule_inputs = {}
         # Per cycle: what the Optimiser decided, translated to k3s-client calls
         self.latest_decision = {}
+        # When the last action was carried out; nothing else is executed until
+        # the load figures have had time to reflect it (see EXECUTION_COOLDOWN)
+        self.last_executed_at = 0.0
         # Per cycle: load per node, ordered to match the Optimiser's node numbers
         self.latest_node_load = None
 
@@ -333,13 +336,74 @@ class SwarmAgent:
 
             for c in calls:
                 target = f"{c['method']}({c['kwargs']})" if c["method"] else c["description"]
-                if mode == "shadow":
+                if mode != "auto":
                     self.logger.info(
                         f"[Optimiser] rule '{policy}' decided: {target} "
                         f"({shown}) - NOT executed, shadow mode"
                     )
-                else:
-                    self.logger.info(f"[Optimiser] rule '{policy}' decided: {target} ({shown})")
+                    continue
+                self.logger.info(f"[Optimiser] rule '{policy}' decided: {target} ({shown})")
+                self._execute_call(c, mapping)
+
+    # node_load is averaged over this many seconds (monitoring_input.node_loads),
+    # so an action needs at least this long before its effect shows in the numbers.
+    EXECUTION_COOLDOWN = 300
+
+    def _execute_call(self, call: dict, mapping: dict):
+        """
+        Carry out one translated action through the k3s-client, or say why not.
+
+        Skipped when: the action is not one the Swarm Agent can do; the cooldown
+        since the last action has not passed; the target node is not labelled
+        for pinning (k3s-client create_pod pins by the ms_id label, which must
+        hold the node's own name); or a pinned pod for that node already exists
+        (the library keeps one pinned deployment per node, so a repeat would
+        change nothing).
+        """
+        import time
+        from k3s_client_input import get_application_manager, get_node_labels
+
+        method, kwargs = call.get("method"), call.get("kwargs") or {}
+        if not call.get("supported") or not method:
+            self.logger.info(f"[Optimiser] not executed: {call.get('description')}")
+            return
+
+        remaining = self.EXECUTION_COOLDOWN - (time.time() - self.last_executed_at)
+        if remaining > 0:
+            self.logger.info(
+                f"[Optimiser] not executed: cooldown, {int(remaining)} s left before "
+                f"the last action shows in the load figures"
+            )
+            return
+
+        if method == "create_pod":
+            node = kwargs.get("nodeid")
+            label = get_node_labels().get(node)
+            if label != node:
+                self.logger.info(
+                    f"[Optimiser] not executed: node '{node}' carries ms_id={label!r}; "
+                    f"k3s-client pinning needs it to be the node's own name"
+                )
+                return
+            already = [
+                p for pods in mapping.values() for p, n in pods.items()
+                if n == node and "-pinned-" in p
+            ]
+            if already:
+                self.logger.info(
+                    f"[Optimiser] not executed: a pinned pod already runs on '{node}' "
+                    f"({already[0]}); the library keeps one per node"
+                )
+                return
+
+        try:
+            result = getattr(get_application_manager(), method)(**kwargs)
+            ok = result.get("ok", True) if isinstance(result, dict) else True
+        except Exception as e:
+            self.logger.warning(f"[Optimiser] {method}({kwargs}) failed: {e}")
+            return
+        self.last_executed_at = time.time()
+        self.logger.info(f"[Optimiser] executed: {method}({kwargs}) -> {'ok' if ok else result}")
 
     def _start_monitoring_loop(self, interval_seconds: int = 60):
         """

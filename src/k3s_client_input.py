@@ -75,6 +75,19 @@ def get_node_ips() -> dict:
     return addresses
 
 
+def get_node_labels(key: str = "labels.swarmchestrate.eu/ms_id") -> dict:
+    """Node name -> value of one node label (None when the node lacks it)."""
+    from kubernetes import client, config
+    try:
+        config.load_incluster_config()
+    except Exception:
+        config.load_kube_config()
+    return {
+        n.metadata.name: (n.metadata.labels or {}).get(key)
+        for n in client.CoreV1Api().list_node().items
+    }
+
+
 def get_cluster_status(label_selector: str = None, microservices: set = None) -> dict:
     """
     Current pod->node mapping grouped by microservice, from the k3s-client lib.
