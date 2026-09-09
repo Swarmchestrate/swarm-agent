@@ -13,15 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     git \
     build-essential \
-    libgl1 \
-    libegl1 \
-    libfontconfig1 \
-    libfreetype6 \
-    libgpg-error0 \
     && rm -rf /var/lib/apt/lists/*
-# libgl1..libgpg-error0: runtime libs for the MiniZinc bundle's fzn-gecode
-# solver (built with desktop/graphics support; the full missing set was
-# enumerated in-pod with: ldd /opt/minizinc/bin/fzn-gecode | grep "not found")
 
 # Install puccini (TOSCA library)
 RUN arch="$(dpkg --print-architecture)" \
@@ -36,21 +28,17 @@ RUN arch="$(dpkg --print-architecture)" \
     && (dpkg -i /tmp/puccini.deb || apt-get install -f -y) \
     && rm /tmp/puccini.deb
 
-# Install MiniZinc + Gecode (required by the swchoptimiser lib). The official
-# bundle only ships for x86_64, so other architectures skip the solver (the
-# optimiser is then unavailable there; the cluster nodes are amd64).
-ARG MINIZINC_VERSION=2.10.0
-RUN arch="$(dpkg --print-architecture)" \
-    && if [ "$arch" = "amd64" ]; then \
-         wget -q "https://github.com/MiniZinc/MiniZincIDE/releases/download/${MINIZINC_VERSION}/MiniZincIDE-${MINIZINC_VERSION}-bundle-linux-x86_64.tgz" -O /tmp/minizinc.tgz \
-         && mkdir -p /opt/minizinc \
-         && tar -xzf /tmp/minizinc.tgz -C /opt/minizinc --strip-components=1 \
-         && rm /tmp/minizinc.tgz \
-         && ln -s /opt/minizinc/bin/minizinc /usr/local/bin/minizinc \
-         && minizinc --version; \
-       else \
-         echo "MiniZinc bundle not available for $arch; optimiser solver skipped"; \
-       fi
+# MiniZinc + the Gecode solver (required by the swchoptimiser lib), from
+# Debian's own packages so every architecture gets a working solver: amd64
+# (cloud VMs), arm64 (Apple silicon, Raspberry Pi 4/5) and armhf. The build
+# fails here if the solver is not registered, rather than shipping an image
+# whose optimiser cannot run.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    minizinc \
+    gecode-flatzinc \
+    && rm -rf /var/lib/apt/lists/* \
+    && minizinc --version \
+    && minizinc --solvers | grep -qi gecode
 
 COPY ./requirements.txt /app/requirements.txt
 
