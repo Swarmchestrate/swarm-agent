@@ -6,7 +6,7 @@
 # monitoring stack, deploys the application, and starts collecting metrics.
 #
 # Usage:
-#   bash deploy-sa.sh                 # defaults: job=stressng, seconds SAT, leader auto-detected
+#   bash deploy-sa.sh                 # defaults: job=stressng, reconfiguration SAT, leader auto-detected
 #   bash deploy-sa.sh <job> <sat> <leader>
 #
 # Run this from the scripts/ directory (or anywhere - it cd's to its own dir).
@@ -15,7 +15,7 @@ set -e
 cd "$(dirname "$0")"
 
 JOB_ID="${1:-stressng}"
-TOSCA="${2:-../KB/stressng_SAT_monitoring.yaml}"
+TOSCA="${2:-../KB/stressng_SAT_reconfiguration.yaml}"
 # Leader node name. Given explicitly as the 3rd argument, otherwise detected:
 # this machine's hostname when it is also a Kubernetes node name, else the only
 # node of a single-node cluster. (Hostname and node name are not always equal.)
