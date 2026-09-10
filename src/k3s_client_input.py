@@ -36,6 +36,11 @@ def _fallback_mapping(label_selector: str = None) -> dict:
     return grouped
 
 
+def _nodes() -> list:
+    """Every Node object in the cluster, via the k3s-client's list_nodes()."""
+    return get_application_manager().pod_manager.list_nodes() or []
+
+
 def get_node_names() -> list:
     """
     Every node in the cluster, sorted by name.
@@ -44,12 +49,7 @@ def get_node_names() -> list:
     Optimiser needs the full set: a node with nothing on it is still somewhere a
     pod can be placed.
     """
-    from kubernetes import client, config
-    try:
-        config.load_incluster_config()
-    except Exception:
-        config.load_kube_config()
-    return sorted(n.metadata.name for n in client.CoreV1Api().list_node().items)
+    return sorted(n.get("metadata", {}).get("name") for n in _nodes())
 
 
 def get_node_ips() -> dict:
@@ -60,31 +60,21 @@ def get_node_ips() -> dict:
     numbers nodes by their position in get_node_names(). This is the lookup
     between the two, so a per-node metric can be placed in the right slot.
     """
-    from kubernetes import client, config
-    try:
-        config.load_incluster_config()
-    except Exception:
-        config.load_kube_config()
-
     addresses = {}
-    for node in client.CoreV1Api().list_node().items:
-        for address in node.status.addresses or []:
-            if address.type == "InternalIP":
-                addresses[node.metadata.name] = address.address
+    for node in _nodes():
+        name = node.get("metadata", {}).get("name")
+        for address in node.get("status", {}).get("addresses") or []:
+            if address.get("type") == "InternalIP":
+                addresses[name] = address.get("address")
                 break
     return addresses
 
 
 def get_node_labels(key: str = "labels.swarmchestrate.eu/ms_id") -> dict:
     """Node name -> value of one node label (None when the node lacks it)."""
-    from kubernetes import client, config
-    try:
-        config.load_incluster_config()
-    except Exception:
-        config.load_kube_config()
     return {
-        n.metadata.name: (n.metadata.labels or {}).get(key)
-        for n in client.CoreV1Api().list_node().items
+        n.get("metadata", {}).get("name"): (n.get("metadata", {}).get("labels") or {}).get(key)
+        for n in _nodes()
     }
 
 
