@@ -367,8 +367,9 @@ class SwarmAgent:
 
                 self.logger.info(f"Applying {fpath}")
                 try:
-                    from k3s_client_input import get_application_manager
-                    get_application_manager().apply_manifest(fpath)
+                    from k3s_client.api.applications import ApplicationManager
+                    manager = ApplicationManager()
+                    manager.apply_manifest(manifest_file = fpath)
                     self.logger.info(f"[AppDeploy] applied {fpath} via k3s-client lib")
                     continue
                 except Exception as e:
