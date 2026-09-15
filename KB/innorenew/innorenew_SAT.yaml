@@ -1,0 +1,97 @@
+tosca_definitions_version: tosca_2_0
+
+description: InnoRenew SAT
+
+metadata:
+  name: sed-edge-innorenew
+  author: Niki Hrovatin
+  date: "2026-04-20"
+  version: 0.2
+  tags:
+  - prototype
+
+imports:
+- namespace: swch
+  url: https://raw.githubusercontent.com/Swarmchestrate/tosca/refs/heads/main/profiles/eu.swarmchestrate/profile.yaml
+
+service_template:
+  node_templates:
+    swarm:
+      type: swch:Swarm
+      directives:
+      - substitute
+
+    audio-class:
+      type: swch:Microservice
+      properties:
+        # The original SAT pins the digest
+        # sha256:8201e6aeb90dfa78287f0e5d49a1eb65067fd3fddac312bb2a7098300ef55e95,
+        # which is the arm64 build - correct for the edge devices this
+        # application targets, but it cannot start on an x86-64 cluster. The
+        # "latest" tag is a multi-architecture index (amd64 and arm64), so
+        # Kubernetes pulls whichever matches the node. This is the only change
+        # from the SAT as its author wrote it.
+        image: cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/innorenew/audio_classification:latest
+        ports:
+          - port: 42002
+            targetPort: 42002
+            containerPort: 42002
+        volumes:
+          - source: /home/gunjan/classification-conf/configuration.ini
+            target: /app/configuration.ini
+      requirements:
+        - host:
+            node_filter:
+              $and:
+                - $equal:
+                    - $get_property: [SELF, TARGET, CAPABILITY, resource, capacity-provider]
+                    - innorenew
+                - $equal:
+                    - $get_property: [SELF, TARGET, CAPABILITY, resource, type]
+                    - edge
+      capabilities:
+        metrics:
+          properties:
+            raw:
+            - name: cpu_util_instance
+              sensor: "Netdata"
+              config:
+                scope_contexts: k8s.cgroup.cpu
+              collection_frequency: "10 sec" #tbd
+              collection_output: "all"
+            - name: cpu_temp_instance
+              sensor: "Netdata"
+              config:
+                scope_contexts: dev.cpu.temperature #https://learn.netdata.cloud/docs/collecting-metrics/freebsd/dev.cpu.temperature , a dimension per core
+              collection_frequency: "10 sec" #tbd
+              collection_output: "all"
+            composite:
+            - name: mean_cpu_util
+              formula: mean( cpu_util_instance )
+              collection_frequency: "1 min" #tbd
+              collection_output: "all"
+              window_type: "sliding"
+              window_size: "1 min"
+              grouping: "global" #cpu avg across all edge nodes
+            - name: mean_cpu_temp
+              formula: mean( cpu_temp_instance )
+              collection_frequency: "30 sec" #tbd
+              collection_output: "all"
+              window_type: "sliding"
+              window_size: "15 sec"
+              grouping: "per_instance" #for the particular component/node
+        slo-constraints:
+          properties:
+            or_list:
+              - name: mean_cpu_util_above_slo
+                metric: mean_cpu_util
+                operator: ">"
+                threshold: 60.0
+              - name: mean_cpu_util_below_slo
+                metric: mean_cpu_util
+                operator: "<"
+                threshold: 30.0
+              - name: mean_cpu_temp_slo
+                metric: mean_cpu_temp
+                operator: "<"
+                threshold: 80.0 # celcius
