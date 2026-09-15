@@ -46,8 +46,9 @@ echo "--- Optimiser inputs read from the SAT ---"
 echo "$LOGS" | grep -E "microservice\(s\) from SAT|reconfiguration '|no reconfiguration policy|needs .* input|unfilled variable" | head -6   || echo "none (the SAT declares no reconfiguration policy)"
 
 echo ""
-echo "--- Last 3 poll results (monitoring + SLO) ---"
-echo "$LOGS" | grep "poll done" | tail -3
+echo "--- Last 3 rule inputs (what the Optimiser was given) ---"
+echo "$LOGS" | grep "inputs ready" | tail -3
+echo "$LOGS" | grep "SLO violated" | tail -2 || true
 
 echo ""
 echo "--- Last cluster status (pod->node input for the Optimiser) ---"

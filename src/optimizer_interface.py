@@ -349,6 +349,7 @@ def actions_to_k3s_calls(actions: list, index: dict) -> list:
                 "action": kind,
                 "method": "create_pod",
                 "kwargs": {"msid": deployment, "nodeid": node},
+                "node": node,
                 "description": f"add a pod of '{msid}' on node '{node}'",
                 "supported": node is not None,
             })
@@ -368,7 +369,8 @@ def actions_to_k3s_calls(actions: list, index: dict) -> list:
                 "action": kind,
                 "method": "delete_pod",
                 "kwargs": {"msid": owner, "podid": pod},
-                "description": f"remove pod '{pod}' of '{msid}'",
+                "node": on_node,
+                "description": f"remove pod '{pod}' of '{msid}' from node '{on_node}'",
                 "supported": pod is not None,
             })
 

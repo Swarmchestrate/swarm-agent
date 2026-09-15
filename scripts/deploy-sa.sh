@@ -69,4 +69,4 @@ kubectl rollout status daemonset/swarm-agent -n swarm-system
 echo ""
 echo "Swarm Agent deployed. It now auto-deploys the monitoring stack + app and starts collecting."
 echo "Watch it with:"
-echo "  kubectl logs -n swarm-system -f \$(kubectl get pods -n swarm-system -o name --field-selector spec.nodeName=$LEADER | grep swarm-agent) | grep --line-buffered -E 'MonitoringDeploy|AppDeploy|poll interval|subscribed|Cluster status|inputs ready|Optimiser|poll done'"
+echo "  kubectl logs -n swarm-system -f \$(kubectl get pods -n swarm-system -o name --field-selector spec.nodeName=$LEADER | grep swarm-agent) | grep --line-buffered -E 'MonitoringDeploy|AppDeploy|poll interval|subscribed|Cluster status|inputs ready|Optimiser'"

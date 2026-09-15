@@ -338,8 +338,11 @@ class SwarmAgent:
 
             for c in calls:
                 target = f"{c['method']}({c['kwargs']})" if c["method"] else c["description"]
+                where = f" [{c['description']}]" if c.get("node") else ""
                 suffix = " - NOT executed, shadow mode" if mode != "auto" else ""
-                self.logger.info(f"[Optimiser] rule '{policy}' decided: {target} ({shown}){suffix}")
+                self.logger.info(
+                    f"[Optimiser] rule '{policy}' decided: {target}{where} ({shown}){suffix}"
+                )
             if mode != "auto":
                 continue
 
@@ -372,9 +375,7 @@ class SwarmAgent:
             if acted:
                 self.last_executed_at = time.time()
 
-    # node_load is averaged over this many seconds (monitoring_input.node_loads),
-    # so an action needs at least this long before its effect shows in the numbers.
-    EXECUTION_COOLDOWN = 300
+    EXECUTION_COOLDOWN = 30
 
     def _execute_call(self, call: dict, mapping: dict):
         """
@@ -707,14 +708,11 @@ class SwarmAgent:
                         except Exception as e:
                             self.logger.warning(f"[Optimiser] cycle skipped: {e}")
 
-                    total = sum(len(v) for v in snapshot.values())
-                    missing = [m for m in cached_names if not snapshot.get(m)]
                     violated = [v["name"] for v in violations if v["violated"]]
-                    self.logger.info(
-                        f"[MonitoringLoop] poll done: {total} value(s); "
-                        f"missing: {missing if missing else 'none'}; "
-                        f"SLO violated: {violated if violated else 'none'}"
-                    )
+                    if violated:
+                        self.logger.warning(
+                            f"[MonitoringLoop] SLO violated: {violated}"
+                        )
                 except Exception as e:
                     self.logger.error(f"[MonitoringLoop] cycle failed: {e}; will resubscribe")
                     subscribed = False
