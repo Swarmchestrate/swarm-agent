@@ -130,16 +130,24 @@ That is the hybrid: load live, temperature from the file.
 **After about three minutes**, once live load has collected enough samples:
 
 ```
-inputs ready: node_load=[45.10, 100.00], node_temp=[45.50, 85.20], threshold_...
+inputs ready: node_load=[54.73, 100.00], node_temp=[45.50, 85.17], threshold_...
+decided: delete_pod({'msid': 'stressng-v1', 'podid': 'stressng-v1-57d9d96464-c5jwj'})
 decided: create_pod({'msid': 'stressng-v1', 'nodeid': 'sajid-swarm-agent-interfaces'})
-decided: delete_pod({'msid': 'stressng-v1', 'podid': 'stressng-v1-...'})
-executed: create_pod(...) -> ok
-executed: delete_pod(...) -> ok
+executed: create_pod({'msid': 'stressng-v1', 'nodeid': 'sajid-swarm-agent-interfaces'}) -> ok
+executed: delete_pod({'msid': 'stressng-v1', 'podid': 'stressng-v1-57d9d96464-c5jwj'}) -> ok
 ```
 
 Node order is alphabetical: the first value is the control-plane, the second is
-the worker. The new pod is started before the old one is removed, so the
-application is never without a pod.
+the worker. The Optimiser lists the removal first, but the agent starts the new
+pod before removing the old one, so the application is never without a pod.
+
+**One cycle later**, the real load has moved with the pod, and the rule is
+satisfied:
+
+```
+inputs ready: node_load=[98.24, 56.82], node_temp=[45.65, 85.27], threshold_...
+rule 'stressng_phase2_reconfiguration': no change needed (... solved in 559 ms)
+```
 
 ---
 
