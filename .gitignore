@@ -21,3 +21,6 @@ archive/
 CLAUDE.md
 EXPERIMENT.md
 step-by-step-guide.md
+
+# Local assistant settings
+.claude/
