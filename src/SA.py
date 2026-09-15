@@ -377,11 +377,11 @@ class SwarmAgent:
                         f"[AppDeploy] k3s-client apply failed for {fpath}: {e}; "
                         f"falling back to direct apply"
                     )
-                try:
+                #try:
                     # Can apply multi-doc yaml (--- separators)
-                    utils.create_from_yaml(k8s_client, fpath, namespace="default")
-                except Exception as e:
-                    self.logger.error(f"Failed applying {fpath}: {e}")
+                #    utils.create_from_yaml(k8s_client, fpath, namespace="default")
+                #except Exception as e:
+                #    self.logger.error(f"Failed applying {fpath}: {e}")
 
             self.logger.info("Application initialised")
 
