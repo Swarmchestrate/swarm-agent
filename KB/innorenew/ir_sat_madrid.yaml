@@ -1,0 +1,190 @@
+tosca_definitions_version: tosca_2_0
+
+description: InnoRenew SAT
+
+metadata:
+  name: sed-edge-innorenew
+  author: Niki Hrovatin
+  date: "2026-04-20"
+  version: 0.01
+  tags:
+  - prototype
+
+imports:
+- namespace: swch
+  url: https://raw.githubusercontent.com/Swarmchestrate/tosca/refs/heads/main/profiles/eu.swarmchestrate/profile.yaml
+
+service_template:
+  node_templates:
+    swarm:
+      type: swch:Swarm
+      directives:
+      - substitute
+
+    audio-class:
+      type: swch:Microservice
+      properties:
+        image: cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/innorenew/audio_classification@sha256:8201e6aeb90dfa78287f0e5d49a1eb65067fd3fddac312bb2a7098300ef55e95
+        replicas: 3
+        resources:
+          requests:
+            cpu: "3"
+        ports:
+          - port: 42002
+            targetPort: 42002
+            containerPort: 42002
+        volumes:
+          - source: /home/gunjan/classification-conf/configuration.ini
+            target: /app/configuration.ini
+      requirements:
+        - host:
+            count: 2
+            node_filter:
+              $and: 
+                - $greater_or_equal:
+                  - $get_property: [ SELF, TARGET, CAPABILITY, host, num-cpus ]
+                  - 3
+                - $greater_or_equal:
+                  - $get_property: [ SELF, TARGET, CAPABILITY, host, mem-size ]
+                  - 2
+                - $equal:
+                  - $get_property: [SELF, TARGET, CAPABILITY, resource, type]
+                  - edge
+      capabilities:
+        metrics:
+          properties:
+            raw:
+
+            # Raw CPU idle metric.
+            # Required to calculate node_load.
+            - name: cpu_idle_instance
+              sensor: netdata
+              config:
+                scope_contexts: system.cpu
+                dimensions: idle
+              collection_frequency: 30 sec
+              collection_output: all
+
+            # Raw node temperature metric.
+            # Required to calculate node_temp.
+            - name: node_temp_instance
+              sensor: netdata
+              config:
+                scope_contexts: system.hw.sensor.temperature.input
+                dimensions: input
+              collection_frequency: 30 sec
+              collection_output: all
+
+            composite:
+            # Policy input:
+            # array[1..sys_node_count_max] of float: node_load
+            - name: node_load
+              formula: 100 - mean(cpu_idle_instance)
+              collection_frequency: 30 sec
+              collection_output: all
+              window_type: sliding
+              window_size: 5 min
+              grouping: per_instance
+
+            # Policy input:
+            # array[1..sys_node_count_max] of float: node_temp
+            - name: node_temp
+              formula: max(node_temp_instance)
+              collection_frequency: 30 sec
+              collection_output: all
+              window_type: sliding
+              window_size: 5 min
+              grouping: per_instance
+
+  policies:
+
+  - audio_class_reconfiguration:
+      type: swch:Reconfiguration
+
+      properties:
+
+        constants:
+          threshold_node_temperature: "80.0"
+          threshold_min_node_load: "20.0"
+          threshold_max_node_load: "80.0"
+
+        rule: |
+          % --- INPUTS ---
+          int: sys_pod_count_max; % hard limit for the number of pods (must be >= actual pod count)
+          int: sys_node_count_max; % hard limit for the number of nodes (must be >= actual node count)
+          int: sys_node_count_actual; % number of nodes currently existing in the system
+          array[1..sys_pod_count_max] of int: sys_mapping_actual; % 0: non-existent, otherwise node index
+          % --- OUTPUTS ---
+          var 1..sys_node_count_max: sys_node_count_next :: add_to_output;
+          array[1..sys_pod_count_max] of var 0..sys_node_count_max: sys_mapping_next :: add_to_output; % 0: non-existent, otherwise node index
+          % --- AUXILIARY VARIABLES
+          var 0..sys_pod_count_max: sys_pod_count_next = sum(p in 1..sys_pod_count_max)(sys_mapping_next[p] > 0);
+          int: sys_pod_count_actual = sum(p in 1..sys_pod_count_max)(sys_mapping_actual[p] > 0);
+          % --- SYSTEM PARAMETERS ENDS HERE ---
+
+          % --- APPLICATION CONSTANTS ---
+          float: threshold_node_temperature;
+          float: threshold_min_node_load;
+          float: threshold_max_node_load;
+          % --- APPLICATION CONSTANTS ENDS HERE ---
+
+          % --- APPLICATION PARAMETERS: SHOULD MATCH WITH NAMES IN MONITORING SPECIFICATION ---
+          array[1..sys_node_count_max] of float: node_temp;
+          array[1..sys_node_count_max] of float: node_load;
+          % --- APPLICATION PARAMETERS ENDS HERE ---
+
+          % --- DERIVED PARAMETERS WHICH MAKES CONSTRAINTS AND OPTIMISATION GOAL EASIER TO BE EXPRESSED ---
+          int: sys_node_count_used = sum(n in 1..sys_node_count_max)(exists(p in 1..sys_pod_count_max)(sys_mapping_actual[p] = n));
+          float: avg_load_on_used_nodes =
+              if sys_node_count_used > 0 then
+                  sum(n in 1..sys_node_count_max where exists(p in 1..sys_pod_count_max)(sys_mapping_actual[p] = n))(node_load[n]) /
+                  int2float(sys_node_count_used)
+              else
+                  threshold_min_node_load + (threshold_max_node_load - threshold_min_node_load) / 2
+              endif;
+          % --- DERIVED PARAMETERS ENDS HERE ---
+          
+          % --- LIST OF CONSTRAINTS: WHAT ARE THE CONDITIONS WHICH HAS TO BE SATISFIED FOR THE MAPPING---
+          % 0) This app never scales the node count (all demonstartor)
+          constraint sys_node_count_next = sys_node_count_actual;
+
+          % 1) Minimum number of pods is 1
+          constraint sys_pod_count_next >= 1;
+
+          % 2) Max number of pods per node is 1 (non-zero values must differ)
+          constraint forall(i, j in 1..sys_pod_count_max where i < j)(
+              sys_mapping_next[i] = 0 \/ sys_mapping_next[j] = 0 \/ sys_mapping_next[i] != sys_mapping_next[j]
+          );
+
+          % 3) Temperature Rule: No pod can be assigned to a node exceeding temp threshold
+          constraint forall(p in 1..sys_pod_count_max) (
+              sys_mapping_next[p] > 0 -> node_temp[sys_mapping_next[p]] < threshold_node_temperature
+          );
+          
+          % 4) Scale Up: If load > threshold_max_node_load and initial count < max_pods, new count must be greater than initial
+          constraint (avg_load_on_used_nodes > threshold_max_node_load /\ sys_pod_count_actual < sys_pod_count_max) -> sys_pod_count_next > sys_pod_count_actual;
+
+          % 5) Scale Down: If load < threshold_min_node_load and initial count > 1, new count must be less than initial
+          constraint (avg_load_on_used_nodes < threshold_min_node_load /\ sys_pod_count_actual > 1) -> sys_pod_count_next < sys_pod_count_actual;
+          % --- LIST OF CONSTRAINTS ENDS HERE ---
+
+          % --- OPTIMISATION GOAL: DEFINITION OF THE LOSS FUNCTION TO BE MINIMIZED ---
+          % We define a loss function that captures the cost of changes from the initial mapping to the final mapping.
+          % The loss is composed of:
+          % - a high loss for migrating pods (to encourage stability)
+          % - a moderate loss for changing the pod count (to avoid unnecessary scaling)
+          % - a lower loss for utilizing higher temperature nodes (to prefer cooler nodes when changes are necessary)
+          % The solver will try to minimize this loss.
+          var int: loss =
+              % high loss for migrating pods
+              1000*sum(p in 1..sys_pod_count_max)(bool2int(sys_mapping_next[p] != sys_mapping_actual[p]))+
+              % moderate loss for changing pod count
+              100*abs(sys_pod_count_actual - sys_pod_count_next) +
+              % low loss for utilising higher temperature nodes
+              10*sum(p in 1..sys_pod_count_max where sys_mapping_next[p]>0)(round(node_temp[sys_mapping_next[p]]));
+          % --- OPTIMISATION GOAL ENDS HERE ---
+
+          solve minimize loss;
+
+      targets:
+      - audio-class
