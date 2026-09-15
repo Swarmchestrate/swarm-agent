@@ -58,9 +58,15 @@ def rule_required_inputs(rule: str, mslist: list = None) -> dict:
     err = opt.get_error()
     if err:
         raise RuntimeError(f"Optimiser could not load the rule: {err}")
+    app = opt.query_appspec_inputs()
     return {
         "system": sorted(opt.query_system_inputs().keys()),
-        "app": sorted(opt.query_appspec_inputs().keys()),
+        "app": sorted(app.keys()),
+        # A parameter declared as an array is one value per node; the Optimiser
+        # reports it as List[...] while a single value comes back as a plain
+        # type. That is how the agent knows which inputs to collect per node,
+        # without being told any metric names.
+        "arrays": sorted(k for k, v in app.items() if "List" in str(v)),
         "outputs": sorted(opt.query_outputs().keys()),
     }
 
@@ -77,8 +83,9 @@ def check_rule_inputs(reconfiguration: dict, metric_names, node_metric_names=Non
     Args:
         reconfiguration: a get_reconfiguration_details() result.
         metric_names: the metric names the SAT declares (and we subscribe to).
-        node_metric_names: names the Swarm Agent supplies per node rather than
-            as a single value (node_load), which the SAT does not declare.
+        node_metric_names: names the Swarm Agent can supply per node. Any rule
+            variable declared as an array counts as one whether or not it is
+            listed here, since only a per-node value can fill an array.
 
     Returns {"<policy>": {"sources": {"<var>": "constant"|"metric"|"node-metric"},
                           "missing": ["<var>", ...],
@@ -91,14 +98,15 @@ def check_rule_inputs(reconfiguration: dict, metric_names, node_metric_names=Non
         rule = body.get("rule") or ""
         constants = body.get("constants") or {}
         needed = rule_required_inputs(rule, body.get("targets"))
+        arrays = set(needed.get("arrays") or [])
         sources, missing = {}, []
         for name in needed["app"]:
-            if name in constants:
+            if name in arrays or name in node_metrics:
+                sources[name] = "node-metric"
+            elif name in constants:
                 sources[name] = "constant"
             elif name in metrics:
                 sources[name] = "metric"
-            elif name in node_metrics:
-                sources[name] = "node-metric"
             else:
                 missing.append(name)
         report[policy] = {
@@ -181,8 +189,8 @@ def build_rule_inputs(reconfiguration: dict, rule_report: dict, monitoring_data:
 
 def node_load_array(loads_by_key: dict, node_names: list, node_ips: dict = None) -> list:
     """
-    Per-node loads ordered to match the node numbering to_system_input uses, so
-    node_load[n] describes the same machine as node number n in the mapping.
+    Per-node values ordered to match the node numbering to_system_input uses, so
+    entry n describes the same machine as node number n in the mapping.
 
     The monitoring stack keys its values by IP address, so `node_ips`
     (name -> IP, from get_node_ips) is used to look each node up; a value keyed

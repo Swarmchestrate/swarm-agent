@@ -47,6 +47,18 @@ python3 generate-configMaps.py --job-id "$JOB_ID" --tosca-path "$TOSCA" --hub-ra
 echo "=== 2/3 Applying manifests ==="
 kubectl apply -f "$OUT/"
 
+# Optional replay file for metrics the cluster cannot produce (for example a
+# CPU temperature on a VM with no sensor). Given as SIM_METRICS=<path>, it is
+# mounted into the agent at /simdata/metrics.json; without it any file left by
+# an earlier run is removed, so a deploy never replays stale values.
+if [ -n "${SIM_METRICS:-}" ]; then
+  echo "=== Simulated metrics from $SIM_METRICS ==="
+  kubectl create configmap swarm-agent-simdata -n swarm-system \
+    --from-file=metrics.json="$SIM_METRICS" --dry-run=client -o yaml | kubectl apply -f -
+else
+  kubectl delete configmap swarm-agent-simdata -n swarm-system --ignore-not-found >/dev/null
+fi
+
 # Restart even when the manifests are unchanged: the image tag is mutable
 # (CI republishes :optimizer-interfaces) and the SAT is read at startup, so
 # without this a new image or a changed SAT would not be picked up.

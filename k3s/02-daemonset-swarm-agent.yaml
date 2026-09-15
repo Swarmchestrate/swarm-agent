@@ -40,6 +40,9 @@ spec:
           value: "emsserver-ems-server.swarm-system"
         - name: SA_RECONF_MODE
           value: "auto"
+        # replayed metric values, present only when deploy-sa.sh was given SIM_METRICS
+        - name: SA_SIM_METRICS_FILE
+          value: "/simdata/metrics.json"
         # metric values log at DEBUG; set to DEBUG to see them
         - name: SA_LOG_LEVEL
           value: "INFO"
@@ -48,6 +51,8 @@ spec:
           mountPath: /config
         - name: tosca
           mountPath: /tosca
+        - name: simdata
+          mountPath: /simdata
       volumes:
       - name: config
         configMap:
@@ -55,4 +60,8 @@ spec:
       - name: tosca
         configMap:
           name: swarm-agent-tosca
+      - name: simdata
+        configMap:
+          name: swarm-agent-simdata
+          optional: true
 

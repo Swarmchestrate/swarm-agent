@@ -19,6 +19,7 @@ Broker config comes from the environment (read by swchmonclient itself):
     MON_CLIENT_STOMP_PORT  (default 61610)
 """
 
+import os
 import re
 import time
 import logging
@@ -269,15 +270,31 @@ def poll_interval_from_details(details: dict, floor_seconds: int = 60) -> int:
     return max(slowest, floor_seconds)
 
 
-# Raw source for per-node load. The Optimiser needs load per node (see the
-# node_load parameter its examples take), but a composite metric only publishes
-# per node when the SAT sets "grouping: per_host" - and that was measured to
-# stop every other metric arriving on the standard subscriptions. So the per-node
-# figure is derived here from the raw idle metric instead, using the same
-# formula the SAT's cpu_util_prct composite uses: 100 - mean(cpu_idle_instance).
+# Fallback source for per-node load, used only when the SAT declares no metric
+# of the rule's own name. A SAT that declares its per-node values as composites
+# (node_load, node_temp) needs none of this: the name in the rule is the name of
+# the metric. This derives load from the raw idle metric with the same formula a
+# cpu_util_prct composite applies: 100 - mean(cpu_idle_instance).
 NODE_LOAD_SOURCE = "cpu_idle_instance"
 
 _raw_manager = None
+_file_manager = None
+
+
+def _get_file_manager():
+    """
+    A second manager, only for metrics replayed from a file.
+
+    The library will not let one manager take a node's values from a file and
+    live at the same time ("already subscribed from file; unsubscribe it before
+    switching to live"). Keeping replayed metrics apart is what allows a run to
+    mix the two - real load, simulated temperature.
+    """
+    global _file_manager
+    if _file_manager is None:
+        from swchmonclient.metrics import MetricSubscriptionManager
+        _file_manager = MetricSubscriptionManager()
+    return _file_manager
 
 
 def _get_raw_manager():
@@ -295,15 +312,72 @@ def _get_raw_manager():
     return _raw_manager
 
 
-def subscribe_node_metric(metric: str = NODE_LOAD_SOURCE) -> list:
+def simulated_metrics_file() -> str:
+    """
+    Path to a file of replayed metric values, or None for the live monitoring
+    system. Set SA_SIM_METRICS_FILE to use one. Values a cluster cannot produce
+    - a CPU temperature on a cloud VM with no sensor, for instance - can then be
+    supplied from the file while everything else behaves normally.
+    """
+    path = (os.getenv("SA_SIM_METRICS_FILE") or "").strip()
+    # The DaemonSet always sets the variable and mounts the file only when a
+    # simulation file was deployed, so a path that does not exist means none.
+    return path if path and os.path.isfile(path) else None
+
+
+def simulated_metric_names(path: str) -> set:
+    """Every metric name any profile in a replay file defines."""
+    import json
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f)
+    return {m for node in doc.get("nodes") or [] for m in (node.get("metrics") or {})}
+
+
+def subscribe_node_metric(metric: str = NODE_LOAD_SOURCE, source_file: str = None) -> list:
     """
     Subscribe `metric` in raw mode on every node, so its values arrive keyed by
     node instead of averaged into one number. Returns the node keys subscribed.
+
+    With `source_file` the values are replayed from that file instead of the
+    monitoring system, under the "cluster" selector so the library maps the
+    file's profiles onto the cluster's real nodes; the keys are then node
+    addresses either way. Live subscriptions use "all", since "cluster" only
+    selects file profiles.
+
+    Raises when the file has no profile for this metric, which is what lets a
+    caller replay one metric and take the rest from the monitoring system.
     """
-    threads = _get_raw_manager().subscribe_metric_raw(metric, "all") or {}
+    if source_file:
+        threads = _get_file_manager().subscribe_metric_raw(
+            metric, "cluster", source_file=source_file) or {}
+    else:
+        threads = _get_raw_manager().subscribe_metric_raw(metric, "all") or {}
     nodes = sorted(threads.keys())
-    logger.info(f"Subscribed to raw metric '{metric}' on {len(nodes)} node(s): {nodes}")
+    where = f" from {source_file}" if source_file else ""
+    logger.info(f"Subscribed to raw metric '{metric}'{where} on {len(nodes)} node(s): {nodes}")
     return nodes
+
+
+def node_metric_values(metric: str, seconds: int = 300, from_file: bool = False) -> dict:
+    """
+    Mean of `metric` per node over the window, as {node-key: value}.
+
+    Used for a rule variable whose name is the name of a metric, so the value
+    arrives ready to use and no formula is applied here. Nodes that reported
+    nothing are left out.
+    """
+    manager = _get_file_manager() if from_file else _get_raw_manager()
+    raw = manager.query_metric_values_raw(metric, seconds) or {}
+    out = {}
+    for node, samples in raw.items():
+        values = [
+            sample.get("value") for sample in samples
+            if isinstance(sample.get("value"), (int, float))
+        ]
+        if values:
+            out[node] = sum(values) / len(values)
+    logger.debug(f"per-node '{metric}': {out}")
+    return out
 
 
 def node_loads(metric: str = NODE_LOAD_SOURCE, seconds: int = 300) -> dict:

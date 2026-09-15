@@ -129,8 +129,10 @@ class SwarmAgent:
         # When the last action was carried out; nothing else is executed until
         # the load figures have had time to reflect it (see EXECUTION_COOLDOWN)
         self.last_executed_at = 0.0
-        # Per cycle: load per node, ordered to match the Optimiser's node numbers
-        self.latest_node_load = None
+        # Per cycle: each per-node rule input, ordered to match the node numbers
+        self.latest_node_metrics = {}
+        # Where each per-node input comes from: "file", "live" or "derived"
+        self.node_metric_plan = {}
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -336,14 +338,39 @@ class SwarmAgent:
 
             for c in calls:
                 target = f"{c['method']}({c['kwargs']})" if c["method"] else c["description"]
-                if mode != "auto":
-                    self.logger.info(
-                        f"[Optimiser] rule '{policy}' decided: {target} "
-                        f"({shown}) - NOT executed, shadow mode"
-                    )
-                    continue
-                self.logger.info(f"[Optimiser] rule '{policy}' decided: {target} ({shown})")
-                self._execute_call(c, mapping)
+                suffix = " - NOT executed, shadow mode" if mode != "auto" else ""
+                self.logger.info(f"[Optimiser] rule '{policy}' decided: {target} ({shown}){suffix}")
+            if mode != "auto":
+                continue
+
+            # One decision is carried out as a whole. The cooldown is checked
+            # once for it, not per call: a migration arrives as delete + create,
+            # and blocking the second half would leave the application short a
+            # pod until the cooldown ends.
+            import time
+            remaining = self.EXECUTION_COOLDOWN - (time.time() - self.last_executed_at)
+            if remaining > 0:
+                self.logger.info(
+                    f"[Optimiser] not executed: cooldown, {int(remaining)} s left before "
+                    f"the last action shows in the load figures"
+                )
+                continue
+
+            # Make before break: new pods first, and removals only if every new
+            # pod was actually started, so a migration never drops capacity.
+            creates = [c for c in calls if c.get("method") != "delete_pod"]
+            deletes = [c for c in calls if c.get("method") == "delete_pod"]
+            created = [self._execute_call(c, mapping) for c in creates]
+            acted = any(created)
+            if deletes and not all(created):
+                self.logger.info(
+                    "[Optimiser] not executed: removals held back because a new "
+                    "pod in the same decision was not started"
+                )
+            else:
+                acted = any([self._execute_call(c, mapping) for c in deletes]) or acted
+            if acted:
+                self.last_executed_at = time.time()
 
     # node_load is averaged over this many seconds (monitoring_input.node_loads),
     # so an action needs at least this long before its effect shows in the numbers.
@@ -353,28 +380,20 @@ class SwarmAgent:
         """
         Carry out one translated action through the k3s-client, or say why not.
 
-        Skipped when: the action is not one the Swarm Agent can do; the cooldown
-        since the last action has not passed; the target node is not labelled
-        for pinning (k3s-client create_pod pins by the ms_id label, which must
-        hold the node's own name); or a pinned pod for that node already exists
-        (the library keeps one pinned deployment per node, so a repeat would
-        change nothing).
+        Skipped when: the action is not one the Swarm Agent can do; the target
+        node is not labelled for pinning (k3s-client create_pod pins by the ms_id
+        label, which must hold the node's own name); or a pinned pod for that
+        node already exists (the library keeps one pinned deployment per node,
+        so a repeat would change nothing). The cooldown is the caller's.
+
+        Returns True when the call was made and succeeded.
         """
-        import time
         from k3s_client_input import get_application_manager, get_node_labels
 
         method, kwargs = call.get("method"), call.get("kwargs") or {}
         if not call.get("supported") or not method:
             self.logger.info(f"[Optimiser] not executed: {call.get('description')}")
-            return
-
-        remaining = self.EXECUTION_COOLDOWN - (time.time() - self.last_executed_at)
-        if remaining > 0:
-            self.logger.info(
-                f"[Optimiser] not executed: cooldown, {int(remaining)} s left before "
-                f"the last action shows in the load figures"
-            )
-            return
+            return False
 
         if method == "create_pod":
             node = kwargs.get("nodeid")
@@ -384,7 +403,7 @@ class SwarmAgent:
                     f"[Optimiser] not executed: node '{node}' carries ms_id={label!r}; "
                     f"k3s-client pinning needs it to be the node's own name"
                 )
-                return
+                return False
             already = [
                 p for pods in mapping.values() for p, n in pods.items()
                 if n == node and "-pinned-" in p
@@ -394,16 +413,16 @@ class SwarmAgent:
                     f"[Optimiser] not executed: a pinned pod already runs on '{node}' "
                     f"({already[0]}); the library keeps one per node"
                 )
-                return
+                return False
 
         try:
             result = getattr(get_application_manager(), method)(**kwargs)
             ok = result.get("ok", True) if isinstance(result, dict) else True
         except Exception as e:
             self.logger.warning(f"[Optimiser] {method}({kwargs}) failed: {e}")
-            return
-        self.last_executed_at = time.time()
+            return False
         self.logger.info(f"[Optimiser] executed: {method}({kwargs}) -> {'ok' if ok else result}")
+        return bool(ok)
 
     def _start_monitoring_loop(self, interval_seconds: int = 60):
         """
@@ -482,25 +501,79 @@ class SwarmAgent:
                             # and check we can fill every one of them: the Optimiser
                             # cannot calculate while a variable has no value.
                             try:
-                                from optimizer_interface import check_rule_inputs
+                                from optimizer_interface import (
+                                    check_rule_inputs,
+                                    rule_required_inputs,
+                                )
                                 from monitoring_input import (
                                     NODE_LOAD_SOURCE,
+                                    simulated_metrics_file,
                                     subscribe_node_metric,
                                 )
 
-                                # Per-node load is not one of the SAT's declared
-                                # metrics - it is derived from a raw metric that
-                                # keeps its per-node origin (see monitoring_input),
-                                # so the rule can reason about individual machines.
-                                node_metric_names = []
-                                try:
-                                    subscribe_node_metric(NODE_LOAD_SOURCE)
-                                    node_metric_names = ["node_load"]
-                                except Exception as e:
-                                    self.logger.warning(
-                                        f"[MonitoringLoop] per-node load unavailable "
-                                        f"({e}); rules referring to node_load cannot run"
+                                # A rule variable declared as an array is one
+                                # value per node. The Optimiser reports which
+                                # ones those are, so each is subscribed under its
+                                # own name - the SAT names its per-node metrics
+                                # the same, which is what its comments ask for.
+                                wanted = set()
+                                for body in (self.latest_reconfiguration or {}).values():
+                                    try:
+                                        wanted |= set(rule_required_inputs(
+                                            body.get("rule", ""), body.get("targets")
+                                        ).get("arrays") or [])
+                                    except Exception:
+                                        pass
+
+                                # Each per-node input comes from exactly one
+                                # place, chosen in this order: a replay file
+                                # that defines it, a SAT metric of the same
+                                # name, or - for node_load only - the raw idle
+                                # metric. A run can therefore mix them: real
+                                # load, simulated temperature.
+                                source = simulated_metrics_file()
+                                in_file = set()
+                                if source:
+                                    from monitoring_input import simulated_metric_names
+                                    in_file = simulated_metric_names(source)
+                                    self.logger.info(
+                                        f"[MonitoringLoop] replay file {source} "
+                                        f"defines {sorted(in_file)}"
                                     )
+                                self.node_metric_plan = {}
+                                for name in sorted(wanted):
+                                    try:
+                                        if name in in_file:
+                                            subscribe_node_metric(name, source_file=source)
+                                            plan = "file"
+                                        elif name in cached_names:
+                                            subscribe_node_metric(name)
+                                            plan = "live"
+                                        elif name == "node_load" and NODE_LOAD_SOURCE in cached_names:
+                                            subscribe_node_metric(NODE_LOAD_SOURCE)
+                                            plan = "derived"
+                                        else:
+                                            self.logger.warning(
+                                                f"[MonitoringLoop] per-node '{name}' has no "
+                                                f"source: not in a replay file and not a "
+                                                f"SAT metric; rules using it cannot run"
+                                            )
+                                            continue
+                                        self.node_metric_plan[name] = plan
+                                        where = {
+                                            "file": f"replayed from {source}",
+                                            "live": "live from the monitoring system",
+                                            "derived": f"derived from live '{NODE_LOAD_SOURCE}'",
+                                        }[plan]
+                                        self.logger.info(
+                                            f"[MonitoringLoop] per-node '{name}': {where}"
+                                        )
+                                    except Exception as e:
+                                        self.logger.warning(
+                                            f"[MonitoringLoop] per-node '{name}' "
+                                            f"unavailable ({e}); rules using it cannot run"
+                                        )
+                                node_metric_names = sorted(self.node_metric_plan)
 
                                 self.rule_input_report = check_rule_inputs(
                                     self.latest_reconfiguration,
@@ -566,36 +639,45 @@ class SwarmAgent:
                                 node_load_array,
                             )
 
-                            # Load per node, in the same order as the node numbers
-                            # the Optimiser sees. None means at least one node
-                            # reported nothing, and a short array would renumber
-                            # the nodes - so no value is passed at all.
-                            self.latest_node_load = None
+                            # One value per node for each per-node input, in the
+                            # same order as the node numbers the Optimiser sees.
+                            # None means a node reported nothing, and a short
+                            # array would renumber the nodes, so it is left out.
+                            self.latest_node_metrics = {}
                             try:
                                 from k3s_client_input import get_node_ips, get_node_names
-                                from monitoring_input import node_loads
-
-                                self.latest_node_load = node_load_array(
-                                    node_loads(), get_node_names(), get_node_ips()
+                                from monitoring_input import (
+                                    NODE_LOAD_SOURCE,
+                                    node_loads,
+                                    node_metric_values,
                                 )
-                                if self.latest_node_load is None:
-                                    self.logger.warning(
-                                        "[MonitoringLoop] per-node load incomplete this "
-                                        "cycle - not every node reported a value"
-                                    )
+
+                                names, ips = get_node_names(), get_node_ips()
+                                for name, plan in sorted(self.node_metric_plan.items()):
+                                    if plan == "file":
+                                        values = node_metric_values(name, from_file=True)
+                                    elif plan == "live":
+                                        values = node_metric_values(name)
+                                    else:
+                                        values = node_loads(NODE_LOAD_SOURCE)
+                                    ordered = node_load_array(values, names, ips)
+                                    if ordered is None:
+                                        self.logger.warning(
+                                            f"[MonitoringLoop] per-node '{name}' incomplete "
+                                            f"this cycle - not every node reported a value"
+                                        )
+                                        continue
+                                    self.latest_node_metrics[name] = ordered
                             except Exception as e:
                                 self.logger.warning(
-                                    f"[MonitoringLoop] per-node load unavailable: {e}"
+                                    f"[MonitoringLoop] per-node values unavailable: {e}"
                                 )
 
                             self.latest_rule_inputs = build_rule_inputs(
                                 self.latest_reconfiguration,
                                 self.rule_input_report,
                                 envelope,
-                                node_metrics=(
-                                    {"node_load": self.latest_node_load}
-                                    if self.latest_node_load else None
-                                ),
+                                node_metrics=self.latest_node_metrics or None,
                             )
                             for policy, inputs in self.latest_rule_inputs.items():
                                 if inputs["ready"]:
