@@ -113,6 +113,17 @@ def metric_names_from_details(details: dict) -> list:
     return names
 
 
+def metric_aggregations(details: dict) -> dict:
+    out = {}
+    for entry in details.values():
+        for m in (entry.get("metrics") or {}).get("composite") or []:
+            name = m.get("name")
+            if name:
+                match = re.match(r"\s*(max|min)\s*\(", m.get("formula") or "")
+                out[name] = match.group(1) if match else "mean"
+    return out
+
+
 def metric_names_from_sat(tosca_path: str) -> list:
     """
     Metric names (raw + composite) declared in a SAT, obtained via the Sardou
@@ -358,9 +369,10 @@ def subscribe_node_metric(metric: str = NODE_LOAD_SOURCE, source_file: str = Non
     return nodes
 
 
-def node_metric_values(metric: str, seconds: int = 300, from_file: bool = False) -> dict:
+def node_metric_values(metric: str, seconds: int = 300, from_file: bool = False,
+                       aggregate: str = "mean") -> dict:
     """
-    Mean of `metric` per node over the window, as {node-key: value}.
+    Mean, max or min of `metric` per node over the window, as {node-key: value}.
 
     Used for a rule variable whose name is the name of a metric, so the value
     arrives ready to use and no formula is applied here. Nodes that reported
@@ -375,7 +387,12 @@ def node_metric_values(metric: str, seconds: int = 300, from_file: bool = False)
             if isinstance(sample.get("value"), (int, float))
         ]
         if values:
-            out[node] = sum(values) / len(values)
+            if aggregate == "max":
+                out[node] = max(values)
+            elif aggregate == "min":
+                out[node] = min(values)
+            else:
+                out[node] = sum(values) / len(values)
     logger.debug(f"per-node '{metric}': {out}")
     return out
 

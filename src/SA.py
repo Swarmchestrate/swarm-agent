@@ -133,6 +133,7 @@ class SwarmAgent:
         self.latest_node_metrics = {}
         # Where each per-node input comes from: "file", "live" or "derived"
         self.node_metric_plan = {}
+        self.node_metric_aggregation = {}
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -508,6 +509,7 @@ class SwarmAgent:
                                 )
                                 from monitoring_input import (
                                     NODE_LOAD_SOURCE,
+                                    metric_aggregations,
                                     simulated_metrics_file,
                                     subscribe_node_metric,
                                 )
@@ -542,6 +544,7 @@ class SwarmAgent:
                                         f"defines {sorted(in_file)}"
                                     )
                                 self.node_metric_plan = {}
+                                self.node_metric_aggregation = metric_aggregations(cached_details)
                                 for name in sorted(wanted):
                                     try:
                                         if name in in_file:
@@ -567,7 +570,8 @@ class SwarmAgent:
                                             "derived": f"derived from live '{NODE_LOAD_SOURCE}'",
                                         }[plan]
                                         self.logger.info(
-                                            f"[MonitoringLoop] per-node '{name}': {where}"
+                                            f"[MonitoringLoop] per-node '{name}': {where}, "
+                                            f"{self.node_metric_aggregation.get(name, 'mean')} per poll"
                                         )
                                     except Exception as e:
                                         self.logger.warning(
@@ -655,10 +659,11 @@ class SwarmAgent:
 
                                 names, ips = get_node_names(), get_node_ips()
                                 for name, plan in sorted(self.node_metric_plan.items()):
+                                    aggregate = self.node_metric_aggregation.get(name, "mean")
                                     if plan == "file":
-                                        values = node_metric_values(name, from_file=True)
+                                        values = node_metric_values(name, from_file=True, aggregate=aggregate)
                                     elif plan == "live":
-                                        values = node_metric_values(name)
+                                        values = node_metric_values(name, aggregate=aggregate)
                                     else:
                                         values = node_loads(NODE_LOAD_SOURCE)
                                     ordered = node_load_array(values, names, ips)

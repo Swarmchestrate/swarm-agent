@@ -4,16 +4,13 @@ set -e
 cd "$(dirname "$0")"
 
 SAT="../KB/innorenew/ir_sat_madrid.yaml"
-if [ "${1:-}" = "standin" ]; then
-  SAT="../KB/innorenew/ir_sat_madrid_standin.yaml"
-fi
 
 if [ ! -f "$SAT" ]; then
   echo "ERROR: $SAT not found. Run 'git pull' in the repository first." >&2
   exit 1
 fi
 
-SIM="../KB/innorenew/simulated_nodes_metrics.json"
+SIM="../KB/innorenew/simulated_nodes_metrics_fixed.json"
 if [ ! -f "$SIM" ]; then
   echo "ERROR: $SIM not found. Run 'git pull' in the repository first." >&2
   exit 1

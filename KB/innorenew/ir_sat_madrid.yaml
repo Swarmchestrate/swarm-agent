@@ -25,7 +25,7 @@ service_template:
       type: swch:Microservice
       properties:
         image: cloud-193-225-250-99.sztaki.science-cloud.hu/swarchestrate/innorenew/audio_classification@sha256:8201e6aeb90dfa78287f0e5d49a1eb65067fd3fddac312bb2a7098300ef55e95
-        replicas: 3
+        replicas: 1
         resources:
           requests:
             cpu: "3"
@@ -38,7 +38,7 @@ service_template:
             target: /app/configuration.ini
       requirements:
         - host:
-            count: 2
+            count: 3
             node_filter:
               $and: 
                 - $greater_or_equal:
