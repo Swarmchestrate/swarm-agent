@@ -293,7 +293,13 @@ def to_system_input(
         key = f"sys_mapping_actual_{msid}" if multi else "sys_mapping_actual"
         system[key] = mapping
         index["slots"][msid] = slots
-        index["deployments"][msid] = deployment_name_of(ordered[0]) if ordered else msid
+        unpinned = [p for p in ordered if "-pinned-" not in p]
+        if unpinned:
+            index["deployments"][msid] = deployment_name_of(unpinned[0])
+        elif ordered:
+            index["deployments"][msid] = ordered[0].split("-pinned-")[0]
+        else:
+            index["deployments"][msid] = msid
 
     if multi:
         # Every rule declares the plain sys_mapping_actual in the system block it
