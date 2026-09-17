@@ -179,7 +179,7 @@ service_template:
               % high loss for migrating pods
               1000*sum(p in 1..sys_pod_count_max)(bool2int(sys_mapping_next[p] != sys_mapping_actual[p]))+
               % moderate loss for changing pod count
-              100*abs(sys_pod_count_actual - sys_pod_count_next) +
+              1000*abs(sys_pod_count_actual - sys_pod_count_next) +
               % low loss for utilising higher temperature nodes
               10*sum(p in 1..sys_pod_count_max where sys_mapping_next[p]>0)(round(node_temp[sys_mapping_next[p]]));
           % --- OPTIMISATION GOAL ENDS HERE ---
