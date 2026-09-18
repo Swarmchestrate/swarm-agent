@@ -10,7 +10,7 @@ if [ ! -f "$SAT" ]; then
   exit 1
 fi
 
-SIM="../KB/innorenew/simulated_nodes_metrics_fixed.json"
+SIM="../KB/innorenew/simulated_nodes_metrics_cluster.json"
 if [ ! -f "$SIM" ]; then
   echo "ERROR: $SIM not found. Run 'git pull' in the repository first." >&2
   exit 1
