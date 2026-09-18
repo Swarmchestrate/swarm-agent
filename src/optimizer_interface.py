@@ -232,6 +232,7 @@ def to_system_input(
     pod_count_max: int = None,
     node_count_max: int = None,
     headroom: int = 4,
+    previous_slots: dict = None,
 ) -> tuple:
     """
     Convert the pod->node mapping into the numeric system input the Optimiser
@@ -248,9 +249,11 @@ def to_system_input(
     the microservice name (sys_mapping_actual_<ms>), which is the convention its
     generate_actions() reads back.
 
-    Both orderings are sorted by name so the same cluster always produces the
-    same numbering - the Optimiser's answer is meaningless if the indices move
-    between cycles.
+    Nodes are sorted by name so the same cluster always produces the same
+    numbering - the Optimiser's answer is meaningless if the indices move
+    between cycles. A pod keeps the slot it held in `previous_slots`, and a pod
+    that is new takes the lowest free slot, so a migration reads as one slot
+    changing node rather than as the whole array being renumbered.
 
     Args:
         cluster_status: {msid: {pod: node}}, already filtered to the application.
@@ -282,13 +285,25 @@ def to_system_input(
     for msid in sorted(cluster_status):
         pods = cluster_status[msid]
         ordered = sorted(pods)
-        mapping, slots = [], []
-        for pod in ordered[:slots_per_ms]:
-            mapping.append(node_number.get(pods[pod], 0))
-            slots.append(pod)
-        while len(mapping) < slots_per_ms:      # free slots the Optimiser may fill
-            mapping.append(0)
-            slots.append(None)
+        held = {pod: i for i, pod in enumerate((previous_slots or {}).get(msid) or []) if pod}
+        mapping = [0] * slots_per_ms
+        slots = [None] * slots_per_ms
+        placed = set()
+        for pod in ordered:
+            i = held.get(pod)
+            if i is not None and i < slots_per_ms and slots[i] is None:
+                slots[i] = pod
+                mapping[i] = node_number.get(pods[pod], 0)
+                placed.add(pod)
+        free = (i for i in range(slots_per_ms) if slots[i] is None)
+        for pod in ordered:
+            if pod in placed:
+                continue
+            i = next(free, None)
+            if i is None:
+                break
+            slots[i] = pod
+            mapping[i] = node_number.get(pods[pod], 0)
 
         key = f"sys_mapping_actual_{msid}" if multi else "sys_mapping_actual"
         system[key] = mapping

@@ -134,6 +134,7 @@ class SwarmAgent:
         # Where each per-node input comes from: "file", "live" or "derived"
         self.node_metric_plan = {}
         self.node_metric_aggregation = {}
+        self.latest_slots = {}
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -292,7 +293,10 @@ class SwarmAgent:
         mapping = self.latest_cluster_status or {}
         if not mapping:
             return
-        system, index = to_system_input(mapping, get_node_names())
+        system, index = to_system_input(
+            mapping, get_node_names(), previous_slots=self.latest_slots
+        )
+        self.latest_slots = index.get("slots", {})
 
         for policy, inputs in self.latest_rule_inputs.items():
             if not inputs["ready"]:
