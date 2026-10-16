@@ -112,6 +112,30 @@ class SwarmAgent:
         self.resource_id = self.config['resource_id']
         self.sa_role = self.config['SA_role']
 
+        # Latest monitoring data collected by the leader's monitoring loop
+        # (inputs for the Optimiser; None until the first cycle completes)
+        self.latest_monitoring = None
+        self.latest_slo_violations = []
+        # Latest pod->node mapping from the k3s-client lib (Optimiser input 3)
+        self.latest_cluster_status = None
+        # Reconfiguration rule + constants declared in the SAT (Sardou)
+        self.latest_reconfiguration = {}
+        # Which rule variables we can fill, and which are still missing
+        self.rule_input_report = {}
+        # Per cycle: the subset of metric values + constants each rule needs
+        self.latest_rule_inputs = {}
+        # Per cycle: what the Optimiser decided, translated to k3s-client calls
+        self.latest_decision = {}
+        # When the last action was carried out; nothing else is executed until
+        # the load figures have had time to reflect it (see EXECUTION_COOLDOWN)
+        self.last_executed_at = 0.0
+        # Per cycle: each per-node rule input, ordered to match the node numbers
+        self.latest_node_metrics = {}
+        # Where each per-node input comes from: "file", "live" or "derived"
+        self.node_metric_plan = {}
+        self.node_metric_aggregation = {}
+        self.latest_slots = {}
+
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
     def start(self):
@@ -166,9 +190,545 @@ class SwarmAgent:
         self.logger.info("[DEBUG] Now enter convert application tosca")
         self._convert_application_tosca_to_k3s()
 
-       
+
+        # Step 4: Deploy the monitoring stack from the same SAT (autonomous;
+        # needs deployer RBAC on the swarm-agent service account). Best-effort.
+        self._deploy_monitoring_stack()
+
         # Step 5: Deploy applications using the converted manifests
         self._deploy_application()
+
+        # Step 6: Start collecting the SAT-declared metrics (monitoring lib)
+        self._start_monitoring_loop()
+
+    def _deploy_monitoring_stack(self):
+        """
+        Leader deploys the monitoring stack from the same SAT, so the whole flow
+        (monitoring stack + application + metric subscription) runs autonomously.
+
+        Requires the deployer RBAC on the swarm-agent service account. Idempotent
+        (deploy_monitoring is create-or-patch), so restarts are safe. Best-effort:
+        a failure here does NOT stop the SA — the monitoring loop keeps retrying
+        once the broker is up.
+
+        The stack goes into the Swarm Agent's own namespace, not the
+        application's. System components (this agent, the monitoring stack) and
+        application pods are then separated by namespace, which is what lets the
+        cluster-status mapping stay application-only for any application without
+        knowing its name.
+
+        Controlled by env vars:
+          SA_DEPLOY_MONITORING (default "true")  -> set to "false" to skip
+          SA_MON_USE_KB        (default "false") -> deploy_monitoring use_kb mode
+          SA_MON_NAMESPACE     (default "swarm-system") -> where the stack is deployed
+          SA_MON_STARTUP_PROBE (default "true") -> give the EMS server a startupProbe
+        """
+        if os.getenv("SA_DEPLOY_MONITORING", "true").strip().lower() not in ("true", "1", "yes"):
+            self.logger.info("[MonitoringDeploy] disabled (SA_DEPLOY_MONITORING); skipping stack deploy")
+            return
+        try:
+            from swchmonclient import deploy_monitoring
+            use_kb = os.getenv("SA_MON_USE_KB", "false").strip().lower() in ("true", "1", "yes")
+            namespace = os.getenv("SA_MON_NAMESPACE", "swarm-system").strip() or "swarm-system"
+            self.logger.info(
+                f"[MonitoringDeploy] deploying monitoring stack from {self.tosca_path} "
+                f"into namespace '{namespace}' (use_kb={use_kb})"
+            )
+            rc = deploy_monitoring(sat_file=self.tosca_path, use_kb=use_kb, namespace=namespace)
+            if rc == 0:
+                self.logger.info("[MonitoringDeploy] monitoring stack deployed successfully")
+                self._relax_monitoring_probes(namespace)
+            else:
+                self.logger.error(f"[MonitoringDeploy] deploy_monitoring returned {rc} (non-zero)")
+        except Exception as e:
+            self.logger.error(
+                f"[MonitoringDeploy] failed: {e}; continuing — monitoring loop will retry once the broker is up"
+            )
+
+    def _relax_monitoring_probes(self, namespace: str):
+        # Give the EMS server a startupProbe so its liveness check begins only
+        # once the port has opened. Idempotent: skipped if one is already there.
+        if os.getenv("SA_MON_STARTUP_PROBE", "true").strip().lower() not in ("true", "1", "yes"):
+            return
+        name = "emsserver-ems-server"
+        try:
+            try:
+                config.load_incluster_config()
+            except Exception:
+                config.load_kube_config()
+            apps = client.AppsV1Api()
+            container = apps.read_namespaced_deployment(name, namespace).spec.template.spec.containers[0]
+            if container.startup_probe:
+                return                                  # already there (restart, or fixed upstream)
+            apps.patch_namespaced_deployment(name, namespace, {
+                "spec": {"template": {"spec": {"containers": [{
+                    "name": container.name,
+                    "startupProbe": {
+                        "tcpSocket": {"port": "http"},
+                        "periodSeconds": 10,
+                        "failureThreshold": 30,
+                    },
+                }]}}},
+            })
+        except Exception as e:
+            self.logger.warning(f"[MonitoringDeploy] could not set a startupProbe on {name}: {e}")
+
+    def _run_optimiser(self, mode: str = "shadow"):
+        """
+        One decision cycle: hand the Optimiser this cycle's inputs and log what
+        it wants done, translated back into k3s-client calls.
+
+        In "shadow" mode nothing is executed - the decision is logged only. That
+        keeps the loop safe to run while the rule content is still being agreed;
+        an "auto" mode that carries the calls out is the next step.
+        """
+        from optimizer_interface import (
+            actions_to_k3s_calls,
+            describe_inputs,
+            to_system_input,
+        )
+        from k3s_client_input import get_node_names
+        from swch_optimiser import SwchOptimiser
+
+        mapping = self.latest_cluster_status or {}
+        if not mapping:
+            return
+        system, index = to_system_input(
+            mapping, get_node_names(), previous_slots=self.latest_slots
+        )
+        self.latest_slots = index.get("slots", {})
+
+        for policy, inputs in self.latest_rule_inputs.items():
+            if not inputs["ready"]:
+                continue                      # already warned about by the caller
+            body = (self.latest_reconfiguration.get(policy) or {})
+
+            opt = SwchOptimiser(body.get("rule", ""), mslist=sorted(mapping))
+            if opt.get_error():
+                self.logger.warning(
+                    f"[Optimiser] rule '{policy}' could not be loaded: {opt.get_error()}"
+                )
+                continue
+
+            opt.add_input_system(system)
+            opt.add_input_constants(inputs["constants"])
+            opt.add_input_metrics(inputs["metrics"])
+            # Everything the Optimiser receives this cycle, in the three groups
+            # its API takes them in. Logged in full so the inputs can be read
+            # straight from the log, without re-running anything by hand.
+            constants_shown = json.dumps(inputs["constants"])
+            metrics_shown = json.dumps(inputs["metrics"])
+            self.logger.info(f"[Optimiser] input 1/3 system:    {json.dumps(system)}")
+            self.logger.info(f"[Optimiser] input 2/3 constants: {constants_shown}")
+            self.logger.info(f"[Optimiser] input 3/3 metrics:   {metrics_shown}")
+            opt.validate_inputs()
+            result = opt.solve(time_limit_milliseconds=10000)
+
+            shown = describe_inputs(inputs["metrics"])
+            if result is None or result.solution is None:
+                self.logger.warning(
+                    f"[Optimiser] rule '{policy}': no solution ({shown}) - "
+                    f"the rule cannot be satisfied with the current mapping"
+                )
+                continue
+
+            calls = actions_to_k3s_calls(opt.generate_actions(), index)
+            self.latest_decision[policy] = calls
+            if not calls:
+                self.logger.info(
+                    f"[Optimiser] rule '{policy}': no change needed ({shown}, "
+                    f"solved in {opt.time_taken()} ms)"
+                )
+                continue
+
+            for c in calls:
+                target = f"{c['method']}({c['kwargs']})" if c["method"] else c["description"]
+                where = f" [{c['description']}]" if c.get("node") else ""
+                suffix = " - NOT executed, shadow mode" if mode != "auto" else ""
+                self.logger.info(
+                    f"[Optimiser] rule '{policy}' decided: {target}{where} ({shown}){suffix}"
+                )
+            if mode != "auto":
+                continue
+
+            # One decision is carried out as a whole. The cooldown is checked
+            # once for it, not per call: a migration arrives as delete + create,
+            # and blocking the second half would leave the application short a
+            # pod until the cooldown ends.
+            import time
+            remaining = self.EXECUTION_COOLDOWN - (time.time() - self.last_executed_at)
+            if remaining > 0:
+                self.logger.info(
+                    f"[Optimiser] not executed: cooldown, {int(remaining)} s left before "
+                    f"the last action shows in the load figures"
+                )
+                continue
+
+            # Make before break: new pods first, and removals only if every new
+            # pod was actually started, so a migration never drops capacity.
+            creates = [c for c in calls if c.get("method") != "delete_pod"]
+            deletes = [c for c in calls if c.get("method") == "delete_pod"]
+            created = [self._execute_call(c, mapping) for c in creates]
+            acted = any(created)
+            if deletes and not all(created):
+                self.logger.info(
+                    "[Optimiser] not executed: removals held back because a new "
+                    "pod in the same decision was not started"
+                )
+            else:
+                acted = any([self._execute_call(c, mapping) for c in deletes]) or acted
+            if acted:
+                self.last_executed_at = time.time()
+
+    EXECUTION_COOLDOWN = 30
+
+    def _execute_call(self, call: dict, mapping: dict):
+        """
+        Carry out one translated action through the k3s-client, or say why not.
+
+        Skipped when: the action is not one the Swarm Agent can do; the target
+        node is not labelled for pinning (k3s-client create_pod pins by the ms_id
+        label, which must hold the node's own name); or a pinned pod for that
+        node already exists (the library keeps one pinned deployment per node,
+        so a repeat would change nothing). The cooldown is the caller's.
+
+        Returns True when the call was made and succeeded.
+        """
+        from k3s_client_input import get_application_manager, get_node_labels
+
+        method, kwargs = call.get("method"), call.get("kwargs") or {}
+        if not call.get("supported") or not method:
+            self.logger.info(f"[Optimiser] not executed: {call.get('description')}")
+            return False
+
+        if method == "create_pod":
+            node = kwargs.get("nodeid")
+            label = get_node_labels().get(node)
+            if label != node:
+                self.logger.info(
+                    f"[Optimiser] not executed: node '{node}' carries ms_id={label!r}; "
+                    f"k3s-client pinning needs it to be the node's own name"
+                )
+                return False
+            already = [
+                p for pods in mapping.values() for p, n in pods.items()
+                if n == node and "-pinned-" in p
+            ]
+            if already:
+                self.logger.info(
+                    f"[Optimiser] not executed: a pinned pod already runs on '{node}' "
+                    f"({already[0]}); the library keeps one per node"
+                )
+                return False
+
+        try:
+            result = getattr(get_application_manager(), method)(**kwargs)
+            ok = result.get("ok", True) if isinstance(result, dict) else True
+        except Exception as e:
+            self.logger.warning(f"[Optimiser] {method}({kwargs}) failed: {e}")
+            return False
+        self.logger.info(f"[Optimiser] executed: {method}({kwargs}) -> {'ok' if ok else result}")
+        return bool(ok)
+
+    def _start_monitoring_loop(self, interval_seconds: int = 60):
+        """
+        1. identify the metrics to subscribe (from the SAT, via the Sardou lib)
+        2. subscribe once
+        3. poll at the slowest SAT collection_frequency (floor
+           `interval_seconds`), so every metric has values in every poll;
+           metric values are logged at DEBUG level
+        4. evaluate the SAT slo-constraints on each snapshot
+        Latest results are kept on self.latest_monitoring /
+        self.latest_slo_violations as inputs for the Optimiser.
+        """
+        import time
+        from monitoring_input import (
+            get_monitoring_details,
+            get_reconfiguration_details,
+            microservice_names_from_details,
+            metric_names_from_details,
+            poll_interval_from_details,
+            subscribe_metrics,
+            poll_metrics,
+            evaluate_slo,
+        )
+        from k3s_client_input import get_cluster_status
+
+        def loop():
+            # The SAT does not change at runtime: process it once and cache
+            # names + slo details (also avoids concurrent Sardou cache races).
+            cached_names = None
+            cached_details = None
+            cached_microservices = None
+            subscribed = False
+            
+            poll_seconds = interval_seconds
+            while self.is_running:
+                try:
+                    if cached_names is None:
+                        cached_details = get_monitoring_details(self.tosca_path)
+                        names = metric_names_from_details(cached_details)
+                        if not names:
+                            self.logger.warning(
+                                "[MonitoringLoop] SAT declares no metrics; retrying next cycle"
+                            )
+                            time.sleep(poll_seconds)
+                            continue
+                        cached_names = names
+                        poll_seconds = poll_interval_from_details(
+                            cached_details, floor_seconds=interval_seconds
+                        )
+                        cached_microservices = microservice_names_from_details(cached_details)
+                        self.logger.info(f"[MonitoringLoop] metrics from SAT: {cached_names}")
+                        self.logger.info(f"[MonitoringLoop] poll interval {poll_seconds}s")
+                        self.logger.info(
+                            f"[MonitoringLoop] application microservice(s) from SAT: "
+                            f"{sorted(cached_microservices)}"
+                        )
+
+                        # Optimiser inputs from the SAT: the reconfiguration rule
+                        # and its constants (Sardou get_reconfiguration).
+                        try:
+                            self.latest_reconfiguration = get_reconfiguration_details(self.tosca_path)
+                        except Exception as e:
+                            self.logger.warning(f"[MonitoringLoop] reconfiguration unavailable: {e}")
+                            self.latest_reconfiguration = {}
+                        if self.latest_reconfiguration:
+                            for policy, body in self.latest_reconfiguration.items():
+                                rule = body.get("rule") or ""
+                                consts = body.get("constants") or {}
+                                self.logger.info(
+                                    f"[MonitoringLoop] reconfiguration '{policy}': "
+                                    f"rule {len(rule)} char(s), {len(consts)} constant(s) "
+                                    f"{sorted(consts)}; targets {body.get('targets', [])}"
+                                )
+
+                            # Ask the Optimiser which variables the rule refers to,
+                            # and check we can fill every one of them: the Optimiser
+                            # cannot calculate while a variable has no value.
+                            try:
+                                from optimizer_interface import (
+                                    check_rule_inputs,
+                                    rule_required_inputs,
+                                )
+                                from monitoring_input import (
+                                    NODE_LOAD_SOURCE,
+                                    metric_aggregations,
+                                    simulated_metrics_file,
+                                    subscribe_node_metric,
+                                )
+
+                                # A rule variable declared as an array is one
+                                # value per node. The Optimiser reports which
+                                # ones those are, so each is subscribed under its
+                                # own name - the SAT names its per-node metrics
+                                # the same, which is what its comments ask for.
+                                wanted = set()
+                                for body in (self.latest_reconfiguration or {}).values():
+                                    try:
+                                        wanted |= set(rule_required_inputs(
+                                            body.get("rule", ""), body.get("targets")
+                                        ).get("arrays") or [])
+                                    except Exception:
+                                        pass
+
+                                # Each per-node input comes from exactly one
+                                # place, chosen in this order: a replay file
+                                # that defines it, a SAT metric of the same
+                                # name, or - for node_load only - the raw idle
+                                # metric. A run can therefore mix them: real
+                                # load, simulated temperature.
+                                source = simulated_metrics_file()
+                                in_file = set()
+                                if source:
+                                    from monitoring_input import simulated_metric_names
+                                    in_file = simulated_metric_names(source)
+                                    self.logger.info(
+                                        f"[MonitoringLoop] replay file {source} "
+                                        f"defines {sorted(in_file)}"
+                                    )
+                                self.node_metric_plan = {}
+                                self.node_metric_aggregation = metric_aggregations(cached_details)
+                                for name in sorted(wanted):
+                                    try:
+                                        if name in in_file:
+                                            subscribe_node_metric(name, source_file=source)
+                                            plan = "file"
+                                        elif name in cached_names:
+                                            subscribe_node_metric(name)
+                                            plan = "live"
+                                        elif name == "node_load" and NODE_LOAD_SOURCE in cached_names:
+                                            subscribe_node_metric(NODE_LOAD_SOURCE)
+                                            plan = "derived"
+                                        else:
+                                            self.logger.warning(
+                                                f"[MonitoringLoop] per-node '{name}' has no "
+                                                f"source: not in a replay file and not a "
+                                                f"SAT metric; rules using it cannot run"
+                                            )
+                                            continue
+                                        self.node_metric_plan[name] = plan
+                                        where = {
+                                            "file": f"replayed from {source}",
+                                            "live": "live from the monitoring system",
+                                            "derived": f"derived from live '{NODE_LOAD_SOURCE}'",
+                                        }[plan]
+                                        self.logger.info(
+                                            f"[MonitoringLoop] per-node '{name}': {where}, "
+                                            f"{self.node_metric_aggregation.get(name, 'mean')} per poll"
+                                        )
+                                    except Exception as e:
+                                        self.logger.warning(
+                                            f"[MonitoringLoop] per-node '{name}' "
+                                            f"unavailable ({e}); rules using it cannot run"
+                                        )
+                                node_metric_names = sorted(self.node_metric_plan)
+
+                                self.rule_input_report = check_rule_inputs(
+                                    self.latest_reconfiguration,
+                                    cached_names,
+                                    node_metric_names=node_metric_names,
+                                )
+                                for policy, rep in self.rule_input_report.items():
+                                    filled = ", ".join(
+                                        f"{n}={src}" for n, src in sorted(rep["sources"].items())
+                                    ) or "none"
+                                    missing = rep["missing"]
+                                    self.logger.info(
+                                        f"[MonitoringLoop] rule '{policy}' needs "
+                                        f"{len(rep['sources']) + len(missing)} input(s): {filled}"
+                                    )
+                                    if missing:
+                                        self.logger.warning(
+                                            f"[MonitoringLoop] rule '{policy}' has unfilled "
+                                            f"variable(s): {missing} - the Optimiser cannot run "
+                                            f"until these have values"
+                                        )
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"[MonitoringLoop] could not query the Optimiser for the "
+                                    f"rule's variables: {e}"
+                                )
+                        else:
+                            self.logger.info(
+                                "[MonitoringLoop] SAT declares no reconfiguration policy"
+                            )
+
+                    if not subscribed:
+                        subscribe_metrics(cached_names)
+                        subscribed = True
+                        self.logger.info(
+                            f"[MonitoringLoop] subscribed to {len(cached_names)} metric(s); "
+                            f"polling every {poll_seconds}s"
+                        )
+
+                    time.sleep(poll_seconds)
+                    snapshot = poll_metrics(cached_names)
+                    envelope = {"source": "monitoring", "mode": "standard", "metrics": snapshot}
+                    violations = evaluate_slo(envelope, cached_details)
+                    self.latest_monitoring = envelope
+                    self.latest_slo_violations = violations
+
+                    # Optimiser input 3: refresh the pod->node mapping (k3s-client
+                    # lib). Best-effort — cluster status must never break monitoring.
+                    try:
+                        self.latest_cluster_status = get_cluster_status(
+                            microservices=cached_microservices
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"[MonitoringLoop] cluster status unavailable: {e}")
+
+                    # Optimiser inputs for this cycle: the subset of metrics each
+                    # rule refers to, plus its constants, ready to hand over.
+                    if self.rule_input_report:
+                        try:
+                            from optimizer_interface import (
+                                build_rule_inputs,
+                                describe_inputs,
+                                node_load_array,
+                            )
+
+                            # One value per node for each per-node input, in the
+                            # same order as the node numbers the Optimiser sees.
+                            # None means a node reported nothing, and a short
+                            # array would renumber the nodes, so it is left out.
+                            self.latest_node_metrics = {}
+                            try:
+                                from k3s_client_input import get_node_ips, get_node_names
+                                from monitoring_input import (
+                                    NODE_LOAD_SOURCE,
+                                    node_loads,
+                                    node_metric_values,
+                                )
+
+                                names, ips = get_node_names(), get_node_ips()
+                                for name, plan in sorted(self.node_metric_plan.items()):
+                                    aggregate = self.node_metric_aggregation.get(name, "mean")
+                                    if plan == "file":
+                                        values = node_metric_values(name, from_file=True, aggregate=aggregate)
+                                    elif plan == "live":
+                                        values = node_metric_values(name, aggregate=aggregate)
+                                    else:
+                                        values = node_loads(NODE_LOAD_SOURCE)
+                                    ordered = node_load_array(values, names, ips)
+                                    if ordered is None:
+                                        self.logger.warning(
+                                            f"[MonitoringLoop] per-node '{name}' incomplete "
+                                            f"this cycle - not every node reported a value"
+                                        )
+                                        continue
+                                    self.latest_node_metrics[name] = ordered
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"[MonitoringLoop] per-node values unavailable: {e}"
+                                )
+
+                            self.latest_rule_inputs = build_rule_inputs(
+                                self.latest_reconfiguration,
+                                self.rule_input_report,
+                                envelope,
+                                node_metrics=self.latest_node_metrics or None,
+                            )
+                            for policy, inputs in self.latest_rule_inputs.items():
+                                if inputs["ready"]:
+                                    shown = describe_inputs(
+                                        {**inputs["metrics"], **inputs["constants"]}
+                                    )
+                                    self.logger.info(
+                                        f"[MonitoringLoop] rule '{policy}' inputs ready: {shown}"
+                                    )
+                                else:
+                                    self.logger.warning(
+                                        f"[MonitoringLoop] rule '{policy}' not ready: no value "
+                                        f"this cycle for {inputs['unavailable']}"
+                                    )
+                        except Exception as e:
+                            self.logger.warning(
+                                f"[MonitoringLoop] could not build the rule inputs: {e}"
+                            )
+
+                    # Ask the Optimiser what to do with this cycle's inputs.
+                    # SA_RECONF_MODE: "shadow" (default) decides and logs but
+                    # changes nothing; "off" skips it entirely.
+                    mode = os.getenv("SA_RECONF_MODE", "shadow").strip().lower()
+                    if mode != "off" and self.latest_rule_inputs:
+                        try:
+                            self._run_optimiser(mode)
+                        except Exception as e:
+                            self.logger.warning(f"[Optimiser] cycle skipped: {e}")
+
+                    violated = [v["name"] for v in violations if v["violated"]]
+                    if violated:
+                        self.logger.warning(
+                            f"[MonitoringLoop] SLO violated: {violated}"
+                        )
+                except Exception as e:
+                    self.logger.error(f"[MonitoringLoop] cycle failed: {e}; will resubscribe")
+                    subscribed = False
+                    time.sleep(poll_seconds)
+
+        threading.Thread(target=loop, name="sa-monitoring", daemon=True).start()
+        self.logger.info("[MonitoringLoop] started (SAT-driven metric collection)")
 
     def _start_as_worker(self):
         """Start as Worker Swarm Agent"""
@@ -349,7 +909,6 @@ class SwarmAgent:
         #self.logger.info(f"Loading TOSCA for resource {self.resource_id}")
 
         try:
-            # Load in-cluster config (uses ServiceAccount mounted in pod)
             config.load_incluster_config()
             k8s_client = ApiClient()
             v1 = client.CoreV1Api(k8s_client)
@@ -366,6 +925,19 @@ class SwarmAgent:
                 fpath = os.path.join(folder, fname)
 
                 self.logger.info(f"Applying {fpath}")
+                # Prefer the k3s-client lib: apply_manifest is create-or-patch,
+                # AlreadyExists. Falls back to the direct apply below if the
+                # lib call fails for any reason.
+                try:
+                    from k3s_client_input import get_application_manager
+                    get_application_manager().apply_manifest(fpath)
+                    self.logger.info(f"[AppDeploy] applied {fpath} via k3s-client lib")
+                    continue
+                except Exception as e:
+                    self.logger.warning(
+                        f"[AppDeploy] k3s-client apply failed for {fpath}: {e}; "
+                        f"falling back to direct apply"
+                    )
                 try:
                     from k3s_client.api.applications import ApplicationManager
                     manager = ApplicationManager()
@@ -377,6 +949,11 @@ class SwarmAgent:
                         f"[AppDeploy] k3s-client apply failed for {fpath}: {e}; "
                         f"falling back to direct apply"
                     )
+                try:
+                    # Can apply multi-doc yaml (--- separators)
+                    utils.create_from_yaml(k8s_client, fpath, namespace="default")
+                except Exception as e:
+                    self.logger.error(f"Failed applying {fpath}: {e}")
                 #try:
                     # Can apply multi-doc yaml (--- separators)
                 #    utils.create_from_yaml(k8s_client, fpath, namespace="default")

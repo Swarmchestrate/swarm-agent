@@ -1,0 +1,216 @@
+tosca_definitions_version: tosca_2_0
+description: >
+  Phase 2 demo - stress-ng as the application, with a temperature-aware
+  reconfiguration rule. Node load is measured live from the cluster; node
+  temperature is replayed from a file, because cloud VMs have no temperature
+  sensor. The rule is derived from the InnoRenew SAT v0.11 rule.
+metadata:
+  name: stressng-phase2
+  author: Swarmchestrate
+  date: '2026-09-15'
+  version: 1.0
+  tags:
+  - stressng
+  - phase2
+imports:
+- namespace: swch
+  url: https://raw.githubusercontent.com/Swarmchestrate/tosca/refs/heads/main/profiles/eu.swarmchestrate/profile.yaml
+service_template:
+  node_templates:
+    swarm:
+      type: swch:Swarm
+      directives:
+      - substitute
+    stressng:
+      type: swch:Microservice
+      properties:
+        image: docker.io/gunjank05/stress-ng
+        replicas: 1
+        labels:
+          app: stressng
+          service: stressng
+        command:
+        - stress-ng
+        args:
+        - --cpu
+        - '1'
+        - --vm
+        - '1'
+        - --vm-bytes
+        - 256M
+        - --timeout
+        - 3600s
+        - --metrics-brief
+        ports: []
+      capabilities:
+        metrics:
+          properties:
+            # node_load is derived per node from cpu_idle_instance, live.
+            # node_temp is not declared here: it is replayed from
+            # simulated_node_temp.json, supplied to deploy-sa.sh as SIM_METRICS.
+            raw:
+            - name: cpu_idle_instance
+              sensor: netdata
+              config:
+                scope_contexts: system.cpu
+                dimensions: idle
+              collection_frequency: 30 sec
+              collection_output: all
+            - name: ram_free_instance
+              sensor: netdata
+              config:
+                scope_contexts: system.ram
+                dimensions: free
+              collection_frequency: 30 sec
+              collection_output: all
+            - name: ram_total_instance
+              sensor: netdata
+              config:
+                scope_contexts: system.ram
+                results-aggregation: SUM
+              collection_frequency: 30 sec
+              collection_output: all
+            - name: disk_read_activity
+              sensor: netdata
+              config:
+                scope_contexts: system.io
+                dimensions: reads
+              collection_frequency: 10 sec
+              collection_output: all
+            - name: disk_write_activity
+              sensor: netdata
+              config:
+                scope_contexts: system.io
+                dimensions: writes
+              collection_frequency: 10 sec
+              collection_output: all
+            composite:
+            - name: cpu_util_prct
+              formula: 100 - mean(cpu_idle_instance)
+              collection_frequency: 30 sec
+              collection_output: all
+              window_type: sliding
+              window_size: 5 min
+              grouping: global
+            - name: ram_util_prct
+              formula: (mean(ram_total_instance)-mean(ram_free_instance))/mean(ram_total_instance)
+              collection_frequency: 30 sec
+              collection_output: all
+              window_type: sliding
+              window_size: 5 min
+              grouping: global
+            - name: avg_disk_utilization
+              formula: abs(mean(disk_read_activity))+abs(mean(disk_write_activity))
+              collection_frequency: 10 sec
+              collection_output: all
+              window_type: sliding
+              window_size: 5 min
+              grouping: global
+        slo-constraints:
+          properties:
+            name: cpu_utilization
+            metric: cpu_util_prct
+            operator: '>'
+            threshold: 80.0
+      requirements:
+      - host:
+          count: 1
+          node_filter:
+            $and:
+            - $greater_or_equal:
+              - $get_property:
+                - SELF
+                - TARGET
+                - CAPABILITY
+                - host
+                - num-cpus
+              - 1
+            - $greater_or_equal:
+              - $get_property:
+                - SELF
+                - TARGET
+                - CAPABILITY
+                - host
+                - mem-size
+              - 2
+  policies:
+  - stressng_colocation:
+      type: swch:Scheduling.Colocation
+      targets: []
+  - stressng_phase2_reconfiguration:
+      type: swch:Reconfiguration
+      properties:
+        constants:
+          threshold_node_temperature: "80.0"
+          threshold_min_node_load: "20.0"
+          threshold_max_node_load: "80.0"
+        rule: |
+          % --- SYSTEM PARAMETERS ---
+          int: sys_pod_count_max;
+          int: sys_node_count_max;
+          int: sys_node_count_actual;
+          array[1..sys_pod_count_max] of int: sys_mapping_actual;
+          var 1..sys_node_count_max: sys_node_count_next :: add_to_output;
+          array[1..sys_pod_count_max] of var 0..sys_node_count_max: sys_mapping_next :: add_to_output;
+          var 0..sys_pod_count_max: sys_pod_count_next = sum(p in 1..sys_pod_count_max)(sys_mapping_next[p] > 0);
+          int: sys_pod_count_actual = sum(p in 1..sys_pod_count_max)(sys_mapping_actual[p] > 0);
+
+          % --- APPLICATION CONSTANTS ---
+          float: threshold_node_temperature;
+          float: threshold_min_node_load;
+          float: threshold_max_node_load;
+
+          % --- APPLICATION PARAMETERS: one value per node that exists ---
+          array[1..sys_node_count_actual] of float: node_temp;
+          array[1..sys_node_count_actual] of float: node_load;
+
+          % --- DERIVED ---
+          int: sys_node_count_used =
+            sum(n in 1..sys_node_count_actual)
+              (exists(p in 1..sys_pod_count_max)(sys_mapping_actual[p] = n));
+          % nodes a pod is allowed on
+          int: sys_node_count_cool =
+            sum(n in 1..sys_node_count_actual)(bool2int(node_temp[n] < threshold_node_temperature));
+          float: avg_load_on_used_nodes =
+            if sys_node_count_used > 0 then
+              sum(n in 1..sys_node_count_actual
+                  where exists(p in 1..sys_pod_count_max)(sys_mapping_actual[p] = n))
+                 (node_load[n]) / int2float(sys_node_count_used)
+            else
+              threshold_min_node_load + (threshold_max_node_load - threshold_min_node_load) / 2
+            endif;
+
+          % --- CONSTRAINTS ---
+          % 1) never fewer than one pod
+          constraint sys_pod_count_next >= 1;
+          % 2) the node count does not change
+          constraint sys_node_count_next = sys_node_count_actual;
+          % 3) at most one pod per node
+          constraint forall(i, j in 1..sys_pod_count_max where i < j)(
+            sys_mapping_next[i] = 0 \/ sys_mapping_next[j] = 0
+            \/ sys_mapping_next[i] != sys_mapping_next[j]);
+          % 4) no pod on a node at or above the temperature threshold
+          constraint forall(p in 1..sys_pod_count_max)(
+            sys_mapping_next[p] > 0 -> node_temp[sys_mapping_next[p]] < threshold_node_temperature);
+          % 5) scale up under high load, only while a cool node is free
+          %    (v0.11 compared with sys_pod_count_max, which has no solution
+          %     once every allowed node already holds a pod)
+          constraint (avg_load_on_used_nodes > threshold_max_node_load
+                      /\ sys_pod_count_actual < sys_node_count_cool) ->
+            sys_pod_count_next > sys_pod_count_actual;
+          % 6) scale down under low load
+          constraint (avg_load_on_used_nodes < threshold_min_node_load
+                      /\ sys_pod_count_actual > 1) ->
+            sys_pod_count_next < sys_pod_count_actual;
+
+          % --- OPTIMISATION GOAL ---
+          % moving a pod is expensive, changing the count less so, and among
+          % valid answers cooler nodes are preferred
+          var int: loss =
+            1000 * sum(p in 1..sys_pod_count_max)
+                   (bool2int(sys_mapping_next[p] != sys_mapping_actual[p]))
+            + 100 * abs(sys_pod_count_actual - sys_pod_count_next)
+            + 10 * sum(p in 1..sys_pod_count_max where sys_mapping_next[p] > 0)
+                  (round(node_temp[sys_mapping_next[p]]));
+          solve minimize loss;
+      targets: [ stressng ]

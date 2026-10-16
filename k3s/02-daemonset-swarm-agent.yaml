@@ -16,8 +16,13 @@ spec:
       containers:
       - name: swarm-agent
         #image: zewang42/swarm-agent-7.0:amd
-        image: zewang42/swarm-agent-7.0:standalone
+        #image: zewang42/swarm-agent-7.0:standalone   <- upstream prebuilt image (no monitoring code inside)
+        # locally built image incl. monitoring_input + SA monitoring loop
+        # (docker build + k3s ctr images import on each node)
+        #image: swarm-agent:metrics_collector
        # image: ghcr.io/swarmchestrate/swarm-agent:dev
+        # branch image published by CI on every push (Always: the tag moves with the branch)
+        image: ghcr.io/swarmchestrate/swarm-agent:optimizer-interfaces
         imagePullPolicy: Always
         ports:
         - containerPort: 9090
@@ -30,11 +35,24 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.labels['role']
+        # monitoring broker lives in the "default" namespace; SA pods run in swarm-system
+        - name: MON_CLIENT_STOMP_HOST
+          value: "emsserver-ems-server.swarm-system"
+        - name: SA_RECONF_MODE
+          value: "auto"
+        # replayed metric values, present only when deploy-sa.sh was given SIM_METRICS
+        - name: SA_SIM_METRICS_FILE
+          value: "/simdata/metrics.json"
+        # metric values log at DEBUG; set to DEBUG to see them
+        - name: SA_LOG_LEVEL
+          value: "INFO"
         volumeMounts:
         - name: config
           mountPath: /config
         - name: tosca
           mountPath: /tosca
+        - name: simdata
+          mountPath: /simdata
       volumes:
       - name: config
         configMap:
@@ -42,4 +60,8 @@ spec:
       - name: tosca
         configMap:
           name: swarm-agent-tosca
+      - name: simdata
+        configMap:
+          name: swarm-agent-simdata
+          optional: true
 

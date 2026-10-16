@@ -28,6 +28,18 @@ RUN arch="$(dpkg --print-architecture)" \
     && (dpkg -i /tmp/puccini.deb || apt-get install -f -y) \
     && rm /tmp/puccini.deb
 
+# MiniZinc + the Gecode solver (required by the swchoptimiser lib), from
+# Debian's own packages so every architecture gets a working solver: amd64
+# (cloud VMs), arm64 (Apple silicon, Raspberry Pi 4/5) and armhf. The build
+# fails here if the solver is not registered, rather than shipping an image
+# whose optimiser cannot run.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    minizinc \
+    gecode-flatzinc \
+    && rm -rf /var/lib/apt/lists/* \
+    && minizinc --version \
+    && minizinc --solvers | grep -qi gecode
+
 COPY ./requirements.txt /app/requirements.txt
 
 # Install required packages
@@ -45,6 +57,10 @@ RUN pip install --no-cache-dir --upgrade git+https://github.com/Swarmchestrate/l
 COPY src/main.py .
 COPY src/SA.py .
 COPY src/utility.py .
+COPY src/monitoring_input.py .
+COPY src/k3s_client_input.py .
+COPY src/optimizer_interface.py .
+COPY src/pipeline_demo_sa.py .
 
 # Create config directory
 RUN mkdir -p /config

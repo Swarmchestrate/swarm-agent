@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "node_id": "192.168.0.90",
+      "metrics": {
+        "node_temp": {
+          "interval_seconds": 5,
+          "values": [84.0, 86.5, 85.0],
+          "repeat": true
+        }
+      }
+    },
+    {
+      "node_id": "192.168.0.205",
+      "metrics": {
+        "node_temp": {
+          "interval_seconds": 5,
+          "values": [45.0, 47.5, 44.0],
+          "repeat": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+#!/bin/bash
+# One-command health check for the Swarm Agent stack.
+#
+# Shows: pods, which library handled the app deploy, monitoring loop health,
+# the latest cluster-status mapping, and any errors - all in one run.
+#
+# Usage:  bash sa-status.sh            (run on the control-plane node)
+
+# Leader node: this machine's hostname when it is also a Kubernetes node name,
+# otherwise the only node of a single-node cluster (hostname != node name on
+# many setups, e.g. cloud instances).
+NODES=$(kubectl get nodes -o name 2>/dev/null | sed "s|node/||")
+if echo "$NODES" | grep -qx "$(hostname)"; then
+  LEADER_NODE="$(hostname)"
+elif [ -n "$NODES" ] && [ "$(echo "$NODES" | wc -l)" -eq 1 ]; then
+  LEADER_NODE="$NODES"
+else
+  LEADER_NODE="$(hostname)"
+fi
+LEADER=$(kubectl get pods -n swarm-system -o name --field-selector spec.nodeName="$LEADER_NODE" 2>/dev/null | grep swarm-agent | sed "s|pod/||")
+
+echo "==================== SWARM AGENT STATUS ===================="
+echo "Leader pod: ${LEADER:-NOT FOUND}"
+echo ""
+
+echo "--- Pods (swarm-system) ---"
+kubectl get pods -n swarm-system -o wide 2>/dev/null || echo "namespace missing - SA not deployed"
+echo ""
+echo "--- Pods (default: the application; the monitoring stack is in swarm-system above) ---"
+kubectl get pods -n default 2>/dev/null
+
+if [ -z "$LEADER" ]; then
+  echo ""
+  echo "No leader pod found - deploy with: bash deploy-sa.sh"
+  exit 1
+fi
+
+LOGS=$(kubectl logs -n swarm-system "$LEADER" 2>/dev/null)
+
+echo ""
+echo "--- Startup: what did the leader do? ---"
+echo "$LOGS" | grep -E "MonitoringDeploy|AppDeploy|Applying |Application initialised|poll interval|subscribed to" | head -8
+
+echo ""
+echo "--- Optimiser inputs read from the SAT ---"
+echo "$LOGS" | grep -E "microservice\(s\) from SAT|reconfiguration '|no reconfiguration policy|needs .* input|unfilled variable" | head -6   || echo "none (the SAT declares no reconfiguration policy)"
+
+echo ""
+echo "--- Last 3 rule inputs (what the Optimiser was given) ---"
+echo "$LOGS" | grep "inputs ready" | tail -3
+echo "$LOGS" | grep "SLO violated" | tail -2 || true
+
+echo ""
+echo "--- Last cluster status (pod->node input for the Optimiser) ---"
+echo "$LOGS" | grep "Cluster status" | tail -2
+
+echo ""
+echo "--- Last Optimiser decision (shadow mode: decided, not executed) ---"
+DECISION=$(echo "$LOGS" | grep -E "inputs ready|\[Optimiser\] rule" | tail -2)
+if [ -n "$DECISION" ]; then
+  echo "$DECISION"
+elif echo "$LOGS" | grep -q "SAT declares no reconfiguration policy"; then
+  echo "none - this SAT has no reconfiguration policy, so the Optimiser is not used"
+  echo "       (deploy with ../KB/stressng_SAT_reconfiguration.yaml to enable it)"
+else
+  echo "none yet - the rule inputs have not all arrived"
+fi
+
+echo ""
+echo "--- Warnings/errors in the leader log (last 5) ---"
+echo "$LOGS" | grep -E "WARNING|ERROR" | tail -5 || echo "none"
+
+echo ""
+echo "--- Known-issue check ---"
+FB=$(echo "$LOGS" | grep -c "using direct-API fallback")
+echo "k3s-client mapping fallback used: $FB time(s) (expected 0 with k3s-client 0.3.1 or later)"
+echo "============================================================"
