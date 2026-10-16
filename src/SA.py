@@ -939,10 +939,26 @@ class SwarmAgent:
                         f"falling back to direct apply"
                     )
                 try:
+                    from k3s_client.api.applications import ApplicationManager
+                    manager = ApplicationManager()
+                    manager.apply_manifest(manifest_file = fpath)
+                    self.logger.info(f"[AppDeploy] applied {fpath} via k3s-client lib")
+                    continue
+                except Exception as e:
+                    self.logger.warning(
+                        f"[AppDeploy] k3s-client apply failed for {fpath}: {e}; "
+                        f"falling back to direct apply"
+                    )
+                try:
                     # Can apply multi-doc yaml (--- separators)
                     utils.create_from_yaml(k8s_client, fpath, namespace="default")
                 except Exception as e:
                     self.logger.error(f"Failed applying {fpath}: {e}")
+                #try:
+                    # Can apply multi-doc yaml (--- separators)
+                #    utils.create_from_yaml(k8s_client, fpath, namespace="default")
+                #except Exception as e:
+                #    self.logger.error(f"Failed applying {fpath}: {e}")
 
             self.logger.info("Application initialised")
 
