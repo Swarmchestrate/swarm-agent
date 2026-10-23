@@ -124,6 +124,36 @@ def metric_aggregations(details: dict) -> dict:
     return out
 
 
+def slo_names_from_details(details: dict) -> list:
+    names = []
+    for entry in details.values():
+        slo = entry.get("slo-constraints")
+        if not slo:
+            continue
+        if isinstance(slo, dict) and ("or_list" in slo or "and_list" in slo):
+            constraints = slo.get("or_list") or slo.get("and_list") or []
+        else:
+            constraints = slo if isinstance(slo, list) else [slo]
+        for c in constraints:
+            if isinstance(c, dict) and c.get("name"):
+                names.append(c["name"])
+    return names
+
+
+def fired_slo(slo_names: list):
+    from swchmonclient import query_metric_values
+    for name in slo_names:
+        if query_metric_values(name):
+            return name
+    return None
+
+
+def clear_slos(slo_names: list) -> None:
+    from swchmonclient import query_metric_values
+    for name in slo_names:
+        query_metric_values(name)
+
+
 def metric_names_from_sat(tosca_path: str) -> list:
     """
     Metric names (raw + composite) declared in a SAT, obtained via the Sardou
