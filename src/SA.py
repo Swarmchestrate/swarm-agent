@@ -471,7 +471,7 @@ class SwarmAgent:
            one fires (actual values) or when PERIOD_EVALUATION has passed
            (predicted values)
         4. hand the round's inputs to the Optimiser; wait PERIOD_COOLDOWN after
-           actions or after an SLO round; then forget the SLOs
+           actions; then forget the SLOs
         """
         import time
         from monitoring_input import (
@@ -780,7 +780,7 @@ class SwarmAgent:
                         except Exception as e:
                             self.logger.warning(f"[Optimiser] cycle skipped: {e}")
 
-                    if acted or trigger == "slo":
+                    if acted:
                         self.logger.info(f"[DecisionLoop] cooldown {self.PERIOD_COOLDOWN} s")
                         time.sleep(self.PERIOD_COOLDOWN)
                     clear_slos(cached_slos)
