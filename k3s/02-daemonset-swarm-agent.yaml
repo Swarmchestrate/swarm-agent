@@ -43,6 +43,8 @@ spec:
         # replayed metric values, present only when deploy-sa.sh was given SIM_METRICS
         - name: SA_SIM_METRICS_FILE
           value: "/simdata/metrics.json"
+        - name: SA_USE_EMS
+          value: "true"
         # metric values log at DEBUG; set to DEBUG to see them
         - name: SA_LOG_LEVEL
           value: "INFO"

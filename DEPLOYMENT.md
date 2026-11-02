@@ -76,6 +76,7 @@ cluster. Leaves the k3s system components untouched.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SA_DEPLOY_MONITORING` | `true` | Set `false` to skip the automatic monitoring-stack deploy (e.g. if the stack is managed separately). |
+| `SA_USE_EMS` | `true` | Set `false` to run without EMS: no monitoring-stack deploy and no live metrics. Metrics then come only from the simulated file given to `deploy-sa.sh` as `SIM_METRICS`, which can supply per-node (array) rule inputs only. |
 | `SA_MON_USE_KB` | `false` | `deploy_monitoring` resolves the SAT from the local ConfigMap (`false`) or the knowledgebase (`true`). |
 | `SA_LOG_LEVEL` | `INFO` | `DEBUG` also logs each metric value per poll. |
 

@@ -135,6 +135,7 @@ class SwarmAgent:
         self.node_metric_plan = {}
         self.node_metric_aggregation = {}
         self.latest_slots = {}
+        self.ems_skipped = os.getenv("SA_USE_EMS", "true").strip().lower() not in ("true", "1", "yes")
 
         self.logger.info(f"SwarmAgent {self.sa_id} initialised with role: {self.sa_role}, SAT locates at {self.tosca_path}")
 
@@ -222,7 +223,17 @@ class SwarmAgent:
           SA_MON_USE_KB        (default "false") -> deploy_monitoring use_kb mode
           SA_MON_NAMESPACE     (default "swarm-system") -> where the stack is deployed
           SA_MON_STARTUP_PROBE (default "true") -> give the EMS server a startupProbe
+          SA_USE_EMS           (default "true")  -> set to "false" to run without EMS:
+                               no deploy, no live metrics; metrics come only
+                               from the SA_SIM_METRICS_FILE replay file
         """
+        if self.ems_skipped:
+            self.logger.info(
+                "[MonitoringDeploy] SA_USE_EMS is false, so EMS is not deployed; "
+                "metrics come only from the simulated file"
+            )
+            self._warn_missing_from_replay()
+            return
         if os.getenv("SA_DEPLOY_MONITORING", "true").strip().lower() not in ("true", "1", "yes"):
             self.logger.info("[MonitoringDeploy] disabled (SA_DEPLOY_MONITORING); skipping stack deploy")
             return
@@ -243,6 +254,37 @@ class SwarmAgent:
         except Exception as e:
             self.logger.error(
                 f"[MonitoringDeploy] failed: {e}; continuing — monitoring loop will retry once the broker is up"
+            )
+
+    def _warn_missing_from_replay(self):
+        from monitoring_input import (
+            get_reconfiguration_details,
+            simulated_metric_names,
+            simulated_metrics_file,
+        )
+        from optimizer_interface import rule_required_inputs
+
+        source = simulated_metrics_file()
+        if not source:
+            self.logger.warning(
+                "[MonitoringDeploy] no simulated file (SA_SIM_METRICS_FILE); "
+                "without EMS the rule gets no metrics"
+            )
+            return
+        try:
+            in_file = simulated_metric_names(source)
+            missing = set()
+            for body in (get_reconfiguration_details(self.tosca_path) or {}).values():
+                needed = rule_required_inputs(body.get("rule", ""), body.get("targets"))
+                from_file = set(needed.get("arrays") or []) & in_file
+                missing |= set(needed["app"]) - set(body.get("constants") or {}) - from_file
+        except Exception as e:
+            self.logger.warning(f"[MonitoringDeploy] could not compare the rule with {source}: {e}")
+            return
+        if missing:
+            self.logger.warning(
+                f"[MonitoringDeploy] simulated file {source} cannot supply {sorted(missing)}; "
+                f"without EMS the rule cannot run"
             )
 
     def _relax_monitoring_probes(self, namespace: str):
@@ -614,7 +656,7 @@ class SwarmAgent:
                                 "[MonitoringLoop] SAT declares no reconfiguration policy"
                             )
 
-                    if not subscribed:
+                    if not subscribed and not self.ems_skipped:
                         subscribe_metrics(cached_names)
                         subscribed = True
                         self.logger.info(
@@ -623,7 +665,7 @@ class SwarmAgent:
                         )
 
                     time.sleep(poll_seconds)
-                    snapshot = poll_metrics(cached_names)
+                    snapshot = {} if self.ems_skipped else poll_metrics(cached_names)
                     envelope = {"source": "monitoring", "mode": "standard", "metrics": snapshot}
                     violations = evaluate_slo(envelope, cached_details)
                     self.latest_monitoring = envelope
