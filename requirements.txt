@@ -19,7 +19,9 @@ kubernetes==35.0.0
 websockets>=10.0
 
 # monitor client (Optimiser monitoring input)
-swchmonclient==0.2.3
+#swchmonclient==0.2.3
+swchmonclient==0.3.1
+
 
 # optimiser lib (MiniZinc-based reconfiguration decisions; needs the minizinc
 # binary + Gecode solver in the image - see Dockerfile)
