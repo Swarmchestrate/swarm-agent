@@ -7,7 +7,7 @@ swchp2pcom==0.4.1
 
 
 # tosca library
-Sardou>=0.12.3
+Sardou==0.13.1
 
 # Core dependencies
 aiohttp>=3.8.0
@@ -23,5 +23,5 @@ swchmonclient==0.2.3
 
 # optimiser lib (MiniZinc-based reconfiguration decisions; needs the minizinc
 # binary + Gecode solver in the image - see Dockerfile)
-swchoptimiser==0.1.0
+swchoptimiser==0.2.0
 
