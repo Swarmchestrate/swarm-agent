@@ -20,7 +20,7 @@ websockets>=10.0
 
 # monitor client (Optimiser monitoring input)
 #swchmonclient==0.2.3
-swchmonclient==0.3.1
+swchmonclient==0.3.2
 
 
 # optimiser lib (MiniZinc-based reconfiguration decisions; needs the minizinc
