@@ -231,7 +231,7 @@ def get_monitoring_data(
             for i in range(1, polls + 1):
                 time.sleep(poll_interval_seconds)
                 for metric in metrics:
-                    batch = query_metric_values(metric)
+                    batch = sample_values(query_metric_values(metric))
                     if batch:
                         collected[metric].extend(batch)
                     # metric values are debugging detail: DEBUG, not INFO
@@ -459,6 +459,10 @@ def subscribe_metrics(metrics: list) -> None:
         subscribe_metric(metric)
 
 
+def sample_values(samples) -> list:
+    return [s.get("value") if isinstance(s, dict) else s for s in (samples or [])]
+
+
 def poll_metrics(metrics: list) -> dict:
     """
     One snapshot: drain each subscribed metric's buffer once.
@@ -467,7 +471,7 @@ def poll_metrics(metrics: list) -> dict:
     from swchmonclient import query_metric_values
     snapshot = {}
     for metric in metrics:
-        values = query_metric_values(metric)
+        values = sample_values(query_metric_values(metric))
         snapshot[metric] = values
         logger.debug(f"poll '{metric}': {values}")
     return snapshot
