@@ -21,6 +21,12 @@ In a standard Swarmchestrate workflow, these ConfigMaps are generated automatica
 
 ---
 
+## Decision Loop (Ai-integration branch)
+
+On this branch the leader also runs a decision loop: it checks for SLO messages every 5 s, starts a timed round after 300 s without one, and lets the Optimiser decide where pods run. To build, deploy and test it with one command, see [DEPLOYMENT.md, "Decision loop test run"](DEPLOYMENT.md#decision-loop-test-run-ai-integration-branch).
+
+---
+
 ## Feature Status
 
 ### Supported Features

@@ -115,7 +115,7 @@ class SwarmAgent:
         # Latest monitoring data collected by the leader's monitoring loop
         # (inputs for the Optimiser; None until the first cycle completes)
         self.latest_monitoring = None
-        self.latest_slo_violations = []
+        self.test_slo_probability = float(os.getenv("SA_TEST_SLO_PROBABILITY", "0") or 0)
         # Latest pod->node mapping from the k3s-client lib (Optimiser input 3)
         self.latest_cluster_status = None
         # Reconfiguration rule + constants declared in the SAT (Sardou)
@@ -127,7 +127,7 @@ class SwarmAgent:
         # Per cycle: what the Optimiser decided, translated to k3s-client calls
         self.latest_decision = {}
         # When the last action was carried out; nothing else is executed until
-        # the load figures have had time to reflect it (see EXECUTION_COOLDOWN)
+        # the load figures have had time to reflect it (see PERIOD_COOLDOWN)
         self.last_executed_at = 0.0
         # Per cycle: each per-node rule input, ordered to match the node numbers
         self.latest_node_metrics = {}
@@ -224,8 +224,8 @@ class SwarmAgent:
           SA_MON_NAMESPACE     (default "swarm-system") -> where the stack is deployed
           SA_MON_STARTUP_PROBE (default "true") -> give the EMS server a startupProbe
           SA_USE_EMS           (default "true")  -> set to "false" to run without EMS:
-                               no deploy, no live metrics; metrics come only
-                               from the SA_SIM_METRICS_FILE replay file
+                               no deploy, no live metrics, no SLOs; metrics come
+                               only from the SA_SIM_METRICS_FILE replay file
         """
         if self.ems_skipped:
             self.logger.info(
@@ -334,7 +334,8 @@ class SwarmAgent:
 
         mapping = self.latest_cluster_status or {}
         if not mapping:
-            return
+            return False
+        acted_any = False
         system, index = to_system_input(
             mapping, get_node_names(), previous_slots=self.latest_slots
         )
@@ -398,7 +399,7 @@ class SwarmAgent:
             # and blocking the second half would leave the application short a
             # pod until the cooldown ends.
             import time
-            remaining = self.EXECUTION_COOLDOWN - (time.time() - self.last_executed_at)
+            remaining = self.PERIOD_COOLDOWN - (time.time() - self.last_executed_at)
             if remaining > 0:
                 self.logger.info(
                     f"[Optimiser] not executed: cooldown, {int(remaining)} s left before "
@@ -421,8 +422,12 @@ class SwarmAgent:
                 acted = any([self._execute_call(c, mapping) for c in deletes]) or acted
             if acted:
                 self.last_executed_at = time.time()
+                acted_any = True
+        return acted_any
 
-    EXECUTION_COOLDOWN = 30
+    PERIOD_CHECK_SLO = 5
+    PERIOD_EVALUATION = 300
+    PERIOD_COOLDOWN = 30
 
     def _execute_call(self, call: dict, mapping: dict):
         """
@@ -472,16 +477,43 @@ class SwarmAgent:
         self.logger.info(f"[Optimiser] executed: {method}({kwargs}) -> {'ok' if ok else result}")
         return bool(ok)
 
+    def _check_slo_exist(self, slo_names):
+        import random
+        from monitoring_input import fired_slo
+        fired = fired_slo(slo_names)
+        if fired:
+            return fired
+        if self.test_slo_probability > 0 and random.random() < self.test_slo_probability:
+            self.logger.warning("[DecisionLoop] simulated SLO violation (test mode)")
+            return "simulated"
+        return None
+
+    def _wait_for_trigger(self, slo_names):
+        import time
+        deadline = time.monotonic() + self.PERIOD_EVALUATION
+        while self.is_running and time.monotonic() < deadline:
+            time.sleep(self.PERIOD_CHECK_SLO)
+            fired = self._check_slo_exist(slo_names)
+            if fired:
+                return "slo", fired
+        return "period", None
+
+    def _predicted_rule_inputs(self, rule_inputs):
+        self.logger.info(
+            "[DecisionLoop] AI prediction not available yet; "
+            "the predicted values are the latest actual values"
+        )
+        return rule_inputs
+
     def _start_monitoring_loop(self, interval_seconds: int = 60):
         """
-        1. identify the metrics to subscribe (from the SAT, via the Sardou lib)
+        1. identify the metrics and SLOs to subscribe (from the SAT, via the Sardou lib)
         2. subscribe once
-        3. poll at the slowest SAT collection_frequency (floor
-           `interval_seconds`), so every metric has values in every poll;
-           metric values are logged at DEBUG level
-        4. evaluate the SAT slo-constraints on each snapshot
-        Latest results are kept on self.latest_monitoring /
-        self.latest_slo_violations as inputs for the Optimiser.
+        3. every PERIOD_CHECK_SLO seconds query the SLOs; a round starts when
+           one fires (actual values) or when PERIOD_EVALUATION has passed
+           (predicted values)
+        4. hand the round's inputs to the Optimiser; wait PERIOD_COOLDOWN after
+           actions; then forget the SLOs
         """
         import time
         from monitoring_input import (
@@ -489,10 +521,11 @@ class SwarmAgent:
             get_reconfiguration_details,
             microservice_names_from_details,
             metric_names_from_details,
+            slo_names_from_details,
+            clear_slos,
             poll_interval_from_details,
             subscribe_metrics,
             poll_metrics,
-            evaluate_slo,
         )
         from k3s_client_input import get_cluster_status
 
@@ -502,6 +535,7 @@ class SwarmAgent:
             cached_names = None
             cached_details = None
             cached_microservices = None
+            cached_slos = []
             subscribed = False
             
             poll_seconds = interval_seconds
@@ -527,6 +561,24 @@ class SwarmAgent:
                             f"[MonitoringLoop] application microservice(s) from SAT: "
                             f"{sorted(cached_microservices)}"
                         )
+                        cached_slos = slo_names_from_details(cached_details)
+                        if self.ems_skipped:
+                            cached_slos = []
+                            self.logger.info(
+                                "[DecisionLoop] EMS not deployed; SLOs are not checked, "
+                                "only periodic rounds"
+                            )
+                        elif cached_slos:
+                            self.logger.info(f"[DecisionLoop] SLOs from SAT: {cached_slos}")
+                        else:
+                            self.logger.info(
+                                "[DecisionLoop] SAT declares no SLO; only periodic rounds"
+                            )
+                        if self.test_slo_probability > 0:
+                            self.logger.warning(
+                                f"[DecisionLoop] test mode: SLO violations are simulated "
+                                f"with probability {self.test_slo_probability} per check"
+                            )
 
                         # Optimiser inputs from the SAT: the reconfiguration rule
                         # and its constants (Sardou get_reconfiguration).
@@ -658,18 +710,29 @@ class SwarmAgent:
 
                     if not subscribed and not self.ems_skipped:
                         subscribe_metrics(cached_names)
+                        subscribe_metrics(cached_slos)
                         subscribed = True
                         self.logger.info(
-                            f"[MonitoringLoop] subscribed to {len(cached_names)} metric(s); "
-                            f"polling every {poll_seconds}s"
+                            f"[MonitoringLoop] subscribed to {len(cached_names)} metric(s) "
+                            f"and {len(cached_slos)} SLO(s)"
                         )
 
-                    time.sleep(poll_seconds)
+                    trigger, fired = self._wait_for_trigger(cached_slos)
+                    if not self.is_running:
+                        break
+                    if trigger == "slo":
+                        self.logger.info(
+                            f"[DecisionLoop] round started: SLO '{fired}' fired; "
+                            f"the optimiser gets the actual values"
+                        )
+                    else:
+                        self.logger.info(
+                            f"[DecisionLoop] round started: {self.PERIOD_EVALUATION} s passed; "
+                            f"the optimiser gets the predicted values"
+                        )
                     snapshot = {} if self.ems_skipped else poll_metrics(cached_names)
                     envelope = {"source": "monitoring", "mode": "standard", "metrics": snapshot}
-                    violations = evaluate_slo(envelope, cached_details)
                     self.latest_monitoring = envelope
-                    self.latest_slo_violations = violations
 
                     # Optimiser input 3: refresh the pod->node mapping (k3s-client
                     # lib). Best-effort — cluster status must never break monitoring.
@@ -749,21 +812,26 @@ class SwarmAgent:
                                 f"[MonitoringLoop] could not build the rule inputs: {e}"
                             )
 
+                    if trigger == "period":
+                        self.latest_rule_inputs = self._predicted_rule_inputs(
+                            self.latest_rule_inputs
+                        )
+
                     # Ask the Optimiser what to do with this cycle's inputs.
                     # SA_RECONF_MODE: "shadow" (default) decides and logs but
                     # changes nothing; "off" skips it entirely.
                     mode = os.getenv("SA_RECONF_MODE", "shadow").strip().lower()
+                    acted = False
                     if mode != "off" and self.latest_rule_inputs:
                         try:
-                            self._run_optimiser(mode)
+                            acted = self._run_optimiser(mode)
                         except Exception as e:
                             self.logger.warning(f"[Optimiser] cycle skipped: {e}")
 
-                    violated = [v["name"] for v in violations if v["violated"]]
-                    if violated:
-                        self.logger.warning(
-                            f"[MonitoringLoop] SLO violated: {violated}"
-                        )
+                    if acted:
+                        self.logger.info(f"[DecisionLoop] cooldown {self.PERIOD_COOLDOWN} s")
+                        time.sleep(self.PERIOD_COOLDOWN)
+                    clear_slos(cached_slos)
                 except Exception as e:
                     self.logger.error(f"[MonitoringLoop] cycle failed: {e}; will resubscribe")
                     subscribed = False

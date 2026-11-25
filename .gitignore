@@ -21,6 +21,13 @@ archive/
 CLAUDE.md
 EXPERIMENT.md
 step-by-step-guide.md
+DEMO-RUNBOOK.md
+DEMO-k3s-client.md
+KB/phase2/DEPLOY-phase2.md
+KB/VERIFY-main.md
+KB/innorenew/DEPLOY-*.md
+KB/innorenew/ir_sat_madrid_standin.yaml
+KB/innorenew/ir-sat-GUI*.yaml
 
 # Local assistant settings
 .claude/
