@@ -77,6 +77,7 @@ cluster. Leaves the k3s system components untouched.
 | --- | --- | --- |
 | `SA_DEPLOY_MONITORING` | `true` | Set `false` to skip the automatic monitoring-stack deploy (e.g. if the stack is managed separately). |
 | `SA_USE_EMS` | `true` | Set `false` to run without EMS: no monitoring-stack deploy, no live metrics, no SLO checks. Metrics then come only from the simulated file given to `deploy-sa.sh` as `SIM_METRICS`, which can supply per-node (array) rule inputs only. |
+| `SA_PERIOD_EVALUATION` | `300` | Seconds between timed Optimiser rounds of the decision loop (for example `60` or `30`). SLO messages still start a round at once, checked every 5 s. |
 | `SA_MON_USE_KB` | `false` | `deploy_monitoring` resolves the SAT from the local ConfigMap (`false`) or the knowledgebase (`true`). |
 | `SA_LOG_LEVEL` | `INFO` | `DEBUG` also logs each metric value per poll. |
 | `SA_SIM_METRICS_FILE` | `/simdata/metrics.json` | Replay file mounted from the `swarm-agent-simdata` ConfigMap; used only when `deploy-sa.sh` was given `SIM_METRICS`. |

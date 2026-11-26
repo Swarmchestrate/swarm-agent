@@ -426,7 +426,7 @@ class SwarmAgent:
         return acted_any
 
     PERIOD_CHECK_SLO = 5
-    PERIOD_EVALUATION = 300
+    PERIOD_EVALUATION = int(os.getenv("SA_PERIOD_EVALUATION", "300") or 300)
     PERIOD_COOLDOWN = 30
 
     def _execute_call(self, call: dict, mapping: dict):

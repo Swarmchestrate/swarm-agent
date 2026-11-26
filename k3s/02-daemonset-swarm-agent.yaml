@@ -45,6 +45,8 @@ spec:
           value: "/simdata/metrics.json"
         - name: SA_USE_EMS
           value: "true"
+        - name: SA_PERIOD_EVALUATION
+          value: "300"
         # metric values log at DEBUG; set to DEBUG to see them
         - name: SA_LOG_LEVEL
           value: "INFO"
